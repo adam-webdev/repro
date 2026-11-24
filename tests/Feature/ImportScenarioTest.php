@@ -70,7 +70,7 @@ class ImportScenarioTest extends TestCase
                 'Order' => $order, 'Kode Mesin' => $machine, 'Shift' => $shift, 'Jam Mulai' => $t($start), 'Jam Selesai' => $t($end),
                 'Panjang Bahan Baku' => 5000, 'Jumlah Bahan Baku' => 30, 'Panjang Hasil' => 86.2,
             ],
-            'result' => ['Baik' => $ok, 'NC' => $opt['nc'] ?? 0, 'Reject' => $opt['reject'] ?? 0] + ($opt['defects'] ?? []),
+            'result' => ['Baik' => $ok, 'NC' => $opt['nc'] ?? 0, 'Keterangan NC' => $opt['nc_note'] ?? null, 'Reject' => $opt['reject'] ?? 0] + ($opt['defects'] ?? []),
             'dt' => $opt['dt'] ?? ['Seting Awal' => 10],
         ];
     }
@@ -386,6 +386,20 @@ class ImportScenarioTest extends TestCase
 
         $this->import($this->fileA());
         $this->assertSame(5, DB::table('production_reports')->count(), 'Setelah dikosongkan, import ulang berjalan normal');
+    }
+
+    public function test_nc_cause_spelling_variants_are_grouped_but_original_note_is_kept(): void
+    {
+        $this->import([
+            $this->row($this->d1, 1, 'CUTP-501', '450001', '07:00', '10:00', 1000, ['nc' => 12, 'nc_note' => 'IB NO REMOVE NCR-328']),
+            $this->row($this->d1, 1, 'CUTP-501', '450002', '10:00', '15:00', 1000, ['nc' => 8, 'nc_note' => 'IB TIDAK REMOVE NCR-63']),
+            $this->row($this->d1, 1, 'CUTL-501', '450003', '07:00', '15:00', 500, ['nc' => 5, 'nc_note' => 'KARAT NCR-10']),
+        ]);
+
+        $this->assertSame(['IB NON REMOVE', 'KARAT'], $this->active($this->d1)->distinct()->orderBy('nc_cause')->pluck('nc_cause')->all());
+        $row = $this->active($this->d1)->where('order_no', '450001')->first();
+        $this->assertSame('IB NO REMOVE NCR-328', $row->nc_note);
+        $this->assertSame('NCR-328', $row->ncr_no);
     }
 
     public function test_web_routes_for_template_and_delete(): void

@@ -54,6 +54,12 @@ return [
         'HZS-501' => [null, null],
     ],
 
+    // Penyebab NC (dari "Keterangan NC") dengan ejaan berbeda tapi maksudnya sama: nama baku => ejaan lain.
+    // Teks asli Excel tetap tersimpan di nc_note; yang disamakan hanya nc_cause (grafik Penyebab NC).
+    'nc_cause_aliases' => [
+        'IB NON REMOVE' => ['IB NO REMOVE', 'IB NO REMOVE N', 'IB TIDAK REMOVE'],
+    ],
+
     // Kolom jenis reject di Sheet1: header (dinormalisasi) => label tampilan
     'defects' => [
         'baret' => 'Baret',

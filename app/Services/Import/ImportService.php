@@ -547,8 +547,21 @@ class ImportService
         }
         $cause = trim(preg_replace('/NCR[\s\-.]*\d*/', '', $note), ' -.,/');
         $cause = preg_replace('/\s+/', ' ', $cause);
+        $cause = self::canonicalNcCause($cause);
 
         return [$cause !== '' ? mb_substr($cause, 0, 80) : 'TANPA KETERANGAN', $ncr];
+    }
+
+    /** Samakan ejaan penyebab NC yang maksudnya sama (config production.nc_cause_aliases). */
+    public static function canonicalNcCause(string $cause): string
+    {
+        foreach (config('production.nc_cause_aliases', []) as $canonical => $aliases) {
+            if (in_array($cause, $aliases, true)) {
+                return $canonical;
+            }
+        }
+
+        return $cause;
     }
 
     private function storeIssues(ImportBatch $batch, array $issues): void
