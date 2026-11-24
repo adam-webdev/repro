@@ -67,6 +67,7 @@ class ProductionForm extends Model
             $p = 'Mesin #'.($i + 1).' ';
             $out += [
                 $p.'mesin' => $it->machine?->code,
+                $p.'no. PRO' => $it->order_no,
                 $p.'dimensi' => $it->dimension,
                 $p.'waktu kerja' => $it->working_minutes,
                 $p.'cutting time' => $it->cutting_minutes,
@@ -79,7 +80,7 @@ class ProductionForm extends Model
                 $p.'foto' => $it->attachments->count(),
             ];
             foreach ($it->problems as $j => $pr) {
-                $out[$p.'problem '.($j + 1)] = ($pr->kind === 'setup' ? 'Set Up' : 'DT').': '
+                $out[$p.'problem '.($j + 1)] = (['setup' => 'Set Up', 'bongkar' => 'Bongkar'][$pr->kind] ?? 'DT').': '
                     .FormOption::display($pr->option, $pr->other_text).' · '.($pr->minutes ?? 0).' mnt';
             }
         }

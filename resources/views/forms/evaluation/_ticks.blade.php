@@ -14,4 +14,5 @@
     </label>
     <input class="input !h-9 !text-[14px]" x-show="c.{{ $g }}_option_id === 'other'" x-model="c.{{ $g }}_other"
            placeholder="Tulis {{ strtolower($l) }}…" maxlength="150" aria-label="{{ $l }} lainnya">
+    <span class="field-err" :data-error="err(`checks.${i}.{{ $g }}_option_id`) ? 1 : null" x-text="err(`checks.${i}.{{ $g }}_option_id`)"></span>
 </div>

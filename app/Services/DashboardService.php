@@ -44,18 +44,6 @@ class DashboardService
         return Cache::remember($key, now()->addMinutes(30), fn () => $this->build($f));
     }
 
-    /** Data halaman Monitoring Karu (Form Produksi & Form Evaluasi vs data import). */
-    public function karuData(array $f): array
-    {
-        $key = 'karu:v'.Cache::get('dashboard_version', 1).':'.md5(json_encode($f));
-
-        return Cache::remember($key, now()->addMinutes(30), fn () => [
-            'filters' => $f,
-            'karu' => $this->karu($f),
-            'generated_at' => now()->toDateTimeString(),
-        ]);
-    }
-
     private function build(array $f): array
     {
         $prev = $this->previousRange($f);
@@ -74,8 +62,7 @@ class DashboardService
             'shifts' => $this->byShift($f),
             'areas' => $this->byArea($f),
             'machines' => $this->byMachine($f),
-            'heatmap' => $this->heatmap($f),
-            'sap' => $this->sapCompare($f),
+            // 'sap' => $this->sapCompare($f), // Yield SAP vs lapangan: di-hold, tidak ditampilkan
             'customers' => $this->topCustomers($f),
             'generated_at' => now()->toDateTimeString(),
         ];
@@ -209,6 +196,65 @@ class DashboardService
             ->map(fn ($r) => ['key' => $r->key, 'name' => $r->name, 'hours' => round($r->m / 60, 1)])->values()->all();
     }
 
+    /**
+     * Rincian satu kelompok (Set Up / Downtime) saat grafik diklik: alasan (kolom sheet DT), mesin terbanyak
+     * dan catatan keterangan dari Excel. $period = awal batang yang diklik (hari / minggu / bulan), null = seluruh filter.
+     *
+     * @return array{category: string, from: string, to: string, total_hours: float, reasons: list<array>, machines: list<array>, notes: list<array>}
+     */
+    public function downtimeDetail(array $f, string $category, ?string $period = null): array
+    {
+        if ($period) {
+            $start = Carbon::parse($period);
+            $end = match ($f['period']) {
+                'week' => $start->copy()->addDays(6),
+                'month' => $start->copy()->endOfMonth(),
+                default => $start->copy(),
+            };
+            $f['from'] = max($f['from'], $start->toDateString());
+            $f['to'] = min($f['to'], $end->toDateString());
+        }
+
+        $sum = fn () => $this->base('daily_downtime_summaries', $f)
+            ->join('downtime_categories as c', 'c.id', '=', 's.downtime_category_id')
+            ->where('c.key', $category);
+
+        $reasons = $sum()->join('downtime_reasons as r', 'r.id', '=', 's.downtime_reason_id')
+            ->selectRaw('r.name, SUM(s.minutes) m, COUNT(*) n, COUNT(DISTINCT s.machine_id) machines')
+            ->groupBy('r.name')->havingRaw('SUM(s.minutes) > 0')->orderByDesc('m')->get();
+        $total = max(1, (int) $reasons->sum('m'));
+
+        $machines = $sum()->join('machines as mc', 'mc.id', '=', 's.machine_id')
+            ->selectRaw('mc.code, SUM(s.minutes) m')->groupBy('mc.code')->orderByDesc('m')->limit(5)->get();
+
+        $notes = $this->base('production_reports', $f, 's')
+            ->join('machines as mc', 'mc.id', '=', 's.machine_id')
+            ->join('production_downtimes as d', 'd.production_report_id', '=', 's.id')
+            ->join('downtime_reasons as r', 'r.id', '=', 'd.downtime_reason_id')
+            ->join('downtime_categories as c', 'c.id', '=', 'r.downtime_category_id')
+            ->where('c.key', $category)->where('d.minutes', '>', 0)
+            ->whereNotNull('s.downtime_note')->where('s.downtime_note', '<>', '')
+            ->selectRaw('s.id, s.production_date, s.shift, mc.code, s.order_no, s.downtime_note, SUM(d.minutes) m')
+            ->groupBy('s.id', 's.production_date', 's.shift', 'mc.code', 's.order_no', 's.downtime_note')
+            ->orderByDesc('m')->limit(30)->get();
+
+        return [
+            'category' => (string) config("production.downtime_categories.$category"),
+            'from' => $f['from'],
+            'to' => $f['to'],
+            'total_hours' => round($total / 60, 1),
+            'reasons' => $reasons->map(fn ($r) => [
+                'name' => $r->name, 'hours' => round($r->m / 60, 1), 'minutes' => (int) $r->m,
+                'occurrences' => (int) $r->n, 'machines' => (int) $r->machines, 'share' => round($r->m / $total * 100, 1),
+            ])->values()->all(),
+            'machines' => $machines->map(fn ($r) => ['code' => $r->code, 'hours' => round($r->m / 60, 1)])->values()->all(),
+            'notes' => $notes->map(fn ($r) => [
+                'date' => substr((string) $r->production_date, 0, 10), 'shift' => (int) $r->shift, 'machine' => $r->code,
+                'order_no' => $r->order_no, 'note' => $r->downtime_note, 'minutes' => (int) $r->m,
+            ])->values()->all(),
+        ];
+    }
+
     private function defectPareto(array $f): array
     {
         $rows = $this->base('daily_defect_summaries', $f)
@@ -262,31 +308,6 @@ class DashboardService
             ->values()->all();
     }
 
-    private function heatmap(array $f): array
-    {
-        $period = $f['period'];
-        $days = Carbon::parse($f['from'])->diffInDays(Carbon::parse($f['to'])) + 1;
-        if ($period === 'day' && $days > 35) {
-            $period = 'week';
-        }
-        $p = $this->periodExpr($period);
-        $rows = $this->base('daily_machine_summaries', $f)->join('machines as m', 'm.id', '=', 's.machine_id')
-            ->selectRaw("m.code, $p period, SUM(s.cutting_minutes) cut, SUM(s.working_minutes) work")
-            ->groupByRaw("m.code, $p")->get();
-        $periods = $rows->pluck('period')->map(fn ($x) => substr((string) $x, 0, 10))->unique()->sort()->values();
-        $byMachine = $rows->groupBy('code')->sortKeys();
-
-        return [
-            'period' => $period,
-            'periods' => $periods->all(),
-            'rows' => $byMachine->map(function ($items, $code) use ($periods) {
-                $map = $items->keyBy(fn ($i) => substr((string) $i->period, 0, 10));
-
-                return ['machine' => $code, 'values' => $periods->map(fn ($p) => isset($map[$p]) ? self::pct((float) $map[$p]->cut, (float) $map[$p]->work) : null)->all()];
-            })->values()->all(),
-        ];
-    }
-
     private function sapCompare(array $f): array
     {
         $threshold = config('production.anomaly.yield_diff');
@@ -322,134 +343,6 @@ class DashboardService
             'avg_sap' => $mapped->count() ? round($mapped->avg('sap'), 2) : null,
             'avg_field_ok' => $mapped->count() ? round($mapped->avg('field_ok'), 2) : null,
             'rows' => $flagged->take(15)->all(),
-        ];
-    }
-
-    // ---------------------------------------------------------------- form karu
-
-    /** Baris form karu (per mesin / per pengecekan) yang lolos filter dashboard. */
-    private function karuBase(string $form, string $child, string $fk, array $f): Builder
-    {
-        return DB::table("$child as i")
-            ->join("$form as f", 'f.id', '=', "i.$fk")
-            ->join('machines as m', 'm.id', '=', 'i.machine_id')
-            ->whereNull('f.deleted_at')
-            ->whereBetween('f.form_date', [$f['from'], $f['to']])
-            ->when($f['shift'], fn ($q) => $q->where('f.shift', $f['shift']))
-            ->when($f['area_id'], fn ($q) => $q->where('m.area_id', $f['area_id']))
-            ->when($f['building'], fn ($q) => $q->where('m.building', $f['building']))
-            ->when($f['machine_id'], fn ($q) => $q->where('i.machine_id', $f['machine_id']));
-    }
-
-    private function karu(array $f): array
-    {
-        $items = fn () => $this->karuBase('production_forms', 'production_form_items', 'production_form_id', $f);
-        $checks = fn () => $this->karuBase('evaluation_forms', 'evaluation_checks', 'evaluation_form_id', $f);
-
-        $kpi = [
-            'production_forms' => (int) $items()->distinct()->count('f.id'),
-            'machines' => (int) $items()->count(),
-            'evaluation_forms' => (int) $checks()->distinct()->count('f.id'),
-            'checks' => (int) $checks()->count(),
-            'visual_bad' => (int) $checks()->join('form_options as o', 'o.id', '=', 'i.visual_option_id')->where('o.label', '!=', 'OK')->count(),
-            'karus' => (int) DB::query()->fromSub($items()->select('f.user_id')->union($checks()->select('f.user_id')), 'u')->distinct()->count('user_id'),
-        ];
-
-        // Problem (Set Up / DT) dari form produksi, menit terbanyak
-        $problems = $items()->join('production_form_problems as p', 'p.production_form_item_id', '=', 'i.id')
-            ->leftJoin('form_options as o', 'o.id', '=', 'p.form_option_id')
-            ->selectRaw('p.kind, o.label, CASE WHEN o.label IS NULL THEN p.other_text END other, SUM(COALESCE(p.minutes,0)) minutes, COUNT(*) n')
-            ->groupBy('p.kind', 'o.label', 'other')->orderByDesc('minutes')->get()
-            ->each(fn ($r) => $r->name = $r->label ?? 'Lainnya: '.$r->other);
-        $total = max(1, $problems->sum('minutes'));
-        $cum = 0;
-        $pareto = $problems->take(10)->map(function ($r) use ($total, &$cum) {
-            $cum += $r->minutes;
-
-            return ['name' => $r->name, 'kind' => $r->kind === 'setup' ? 'Set Up' : 'DT', 'minutes' => (int) $r->minutes, 'count' => (int) $r->n,
-                'share' => round($r->minutes / $total * 100, 1), 'cumulative' => round($cum / $total * 100, 1)];
-        })->values()->all();
-
-        $dist = fn (string $col) => $checks()->join('form_options as o', 'o.id', '=', "i.$col")
-            ->selectRaw('o.label name, o.sort, COUNT(*) n')->groupBy('o.label', 'o.sort')->orderBy('o.sort')->get()
-            ->map(fn ($r) => ['name' => $r->name, 'count' => (int) $r->n])
-            ->when(true, function ($c) use ($checks, $col) {
-                $other = $checks()->whereNull("i.$col")->whereNotNull('i.'.str_replace('_option_id', '_other', $col))->count();
-
-                return $other ? $c->push(['name' => 'Lainnya', 'count' => $other]) : $c;
-            })->values()->all();
-
-        $byKaru = DB::query()->fromSub(
-            $items()->selectRaw("f.user_id, 'prod' k")->unionAll($checks()->selectRaw("f.user_id, 'eval' k")), 'x'
-        )->join('users as u', 'u.id', '=', 'x.user_id')
-            ->selectRaw("u.name, SUM(k = 'prod') prod, SUM(k = 'eval') eval")
-            ->groupBy('u.name')->orderByRaw('SUM(1) DESC')->limit(15)->get()
-            ->map(fn ($r) => ['name' => $r->name, 'prod' => (int) $r->prod, 'eval' => (int) $r->eval])->values()->all();
-
-        return [
-            'kpi' => $kpi,
-            'problems' => $pareto,
-            'visual' => $dist('visual_option_id'),
-            'compliance' => $dist('compliance_option_id'),
-            'jig' => $dist('jig_option_id'),
-            'by_karu' => $byKaru,
-            'crosscheck' => $this->karuCrossCheck($f, $items),
-        ];
-    }
-
-    /**
-     * Bandingkan isian karu dengan data import admin (tanggal + shift + mesin yang sama).
-     * Selisih besar = perlu dicek di lapangan (downtime tidak tercatat / angka tidak cocok).
-     */
-    private function karuCrossCheck(array $f, \Closure $items): array
-    {
-        $rows = $items()
-            ->leftJoin('daily_machine_summaries as s', fn ($j) => $j->on('s.production_date', '=', 'f.form_date')
-                ->on('s.shift', '=', 'f.shift')->on('s.machine_id', '=', 'i.machine_id'))
-            ->leftJoin('users as u', 'u.id', '=', 'f.user_id')
-            ->selectRaw('f.id form_id, f.form_date d, f.shift, m.code, u.name karu,
-                i.cutting_minutes k_cut, i.ok_qty k_ok,
-                (SELECT SUM(COALESCE(p.minutes,0)) FROM production_form_problems p WHERE p.production_form_item_id = i.id) k_dt,
-                s.cutting_minutes a_cut, s.downtime_minutes a_dt, s.ok_qty a_ok, s.id s_id')
-            ->orderByDesc('f.form_date')->limit(2000)->get();
-
-        $out = [];
-        foreach ($rows as $r) {
-            $issues = [];
-            $score = 0;
-            if (! $r->s_id) {
-                $issues[] = 'Belum ada data import admin';
-                $score = 1000;
-            } else {
-                $chk = function ($label, $k, $a, $absTol, $relTol) use (&$issues, &$score) {
-                    if ($k === null || $a === null) {
-                        return;
-                    }
-                    $diff = (float) $k - (float) $a;
-                    if (abs($diff) > max($absTol, abs((float) $a) * $relTol)) {
-                        $issues[] = $label;
-                        $score += abs($diff) / max(1, abs((float) $a)) * 100;
-                    }
-                };
-                $chk('Downtime beda', $r->k_dt, $r->a_dt, 15, 0.2);
-                $chk('Cutting time beda', $r->k_cut, $r->a_cut, 15, 0.1);
-                $chk('Hasil OK beda', $r->k_ok, $r->a_ok, 50, 0.1);
-            }
-            $out[] = [
-                'form_id' => $r->form_id, 'date' => substr((string) $r->d, 0, 10), 'shift' => (int) $r->shift, 'machine' => $r->code, 'karu' => $r->karu,
-                'karu_dt' => $r->k_dt !== null ? (int) $r->k_dt : null, 'admin_dt' => $r->a_dt !== null ? (int) $r->a_dt : null,
-                'karu_cut' => $r->k_cut !== null ? (int) $r->k_cut : null, 'admin_cut' => $r->a_cut !== null ? (int) $r->a_cut : null,
-                'karu_ok' => $r->k_ok !== null ? (int) $r->k_ok : null, 'admin_ok' => $r->a_ok !== null ? (int) $r->a_ok : null,
-                'issues' => $issues, 'score' => $score,
-            ];
-        }
-        $flagged = collect($out)->filter(fn ($r) => $r['issues'])->sortByDesc('score')->values();
-
-        return [
-            'compared' => count($out),
-            'matched' => collect($out)->filter(fn ($r) => ! in_array('Belum ada data import admin', $r['issues'], true))->count(),
-            'flagged_count' => $flagged->count(),
-            'rows' => $flagged->take(20)->map(fn ($r) => collect($r)->except('score')->all() + ['url' => route('forms.production.show', $r['form_id'])])->all(),
         ];
     }
 

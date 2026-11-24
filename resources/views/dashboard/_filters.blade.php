@@ -36,7 +36,7 @@
                 </select>
             </div>
             <div>
-                <label class="label">Gedung</label>
+                <label class="label">Gudang</label>
                 <select class="input w-[140px]" x-model="f.building" @change="load()">
                     <option value="">Semua</option>
                     @foreach ($buildings as $b)<option value="{{ $b }}">{{ $b }}</option>@endforeach

@@ -4,7 +4,7 @@
     <label class="block"><span class="label">Shift</span>
         <select name="shift" class="input">
             <option value="">Semua</option>
-            @foreach ([1, 2, 3] as $s)<option value="{{ $s }}" @selected(request('shift') == $s)>Shift {{ $s }}</option>@endforeach
+            @foreach (array_keys(config('production.karu_shifts')) as $s)<option value="{{ $s }}" @selected(request('shift') == $s)>Shift {{ $s }}</option>@endforeach
         </select>
     </label>
     <label class="block"><span class="label">Area</span>

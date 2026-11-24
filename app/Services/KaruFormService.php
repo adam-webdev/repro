@@ -46,20 +46,21 @@ class KaruFormService
             'items' => 'required|array|min:1|max:40',
             'items.*.machine_id' => 'required|integer|exists:machines,id',
             'items.*.machine_type' => ['required', Rule::in(array_keys(config('production.machine_types')))],
-            'items.*.dimension' => 'nullable|string|max:60',
-            'items.*.working_minutes' => 'nullable|integer|min:0|max:1440',
-            'items.*.cutting_minutes' => 'nullable|integer|min:0|max:1440',
-            'items.*.std_output' => 'nullable|numeric|min:0|max:100000',
-            'items.*.act_output' => 'nullable|numeric|min:0|max:100000',
-            'items.*.ok_qty' => 'nullable|integer|min:0|max:10000000',
+            'items.*.order_no' => 'required|string|max:20',
+            'items.*.dimension' => 'required|string|max:60',
+            'items.*.working_minutes' => 'required|integer|min:0|max:1440',
+            'items.*.cutting_minutes' => 'required|integer|min:0|max:1440',
+            'items.*.std_output' => 'required|numeric|min:0|max:100000',
+            'items.*.act_output' => 'required|numeric|min:0|max:100000',
+            'items.*.ok_qty' => 'required|integer|min:0|max:10000000',
             'items.*.second_grade_qty' => 'nullable|integer|min:0|max:10000000',
             'items.*.nc_qty' => 'nullable|integer|min:0|max:10000000',
             'items.*.note' => 'nullable|string|max:255',
             'items.*.problems' => 'nullable|array|max:30',
-            'items.*.problems.*.kind' => ['required', Rule::in(['setup', 'dt'])],
+            'items.*.problems.*.kind' => ['required', Rule::in(['setup', 'bongkar', 'dt'])],
             'items.*.problems.*.option_id' => 'nullable|integer|exists:form_options,id',
             'items.*.problems.*.other_text' => 'nullable|string|max:150',
-            'items.*.problems.*.minutes' => 'nullable|integer|min:0|max:1440',
+            'items.*.problems.*.minutes' => 'required|integer|min:0|max:1440',
             'items.*.attachments' => 'nullable|array|max:20',
             'items.*.attachments.*' => 'integer',
         ], $this->messages(), $this->attributes());
@@ -99,7 +100,8 @@ class KaruFormService
             $form->items()->delete();
             foreach (array_values($d['items']) as $i => $it) {
                 $item = $form->items()->create([
-                    'machine_id' => $it['machine_id'], 'machine_type' => $it['machine_type'], 'dimension' => $it['dimension'] ?? null,
+                    'machine_id' => $it['machine_id'], 'machine_type' => $it['machine_type'], 'order_no' => $it['order_no'] ?? null,
+                    'dimension' => $it['dimension'] ?? null,
                     'working_minutes' => $it['working_minutes'] ?? null, 'cutting_minutes' => $it['cutting_minutes'] ?? null,
                     'std_output' => $it['std_output'] ?? null, 'act_output' => $it['act_output'] ?? null,
                     'ok_qty' => $it['ok_qty'] ?? null, 'second_grade_qty' => $it['second_grade_qty'] ?? null, 'nc_qty' => $it['nc_qty'] ?? null,
@@ -125,34 +127,49 @@ class KaruFormService
 
     public function saveEvaluation(Request $request, ?EvaluationForm $form = null): EvaluationForm
     {
-        $dec = 'nullable|numeric|min:0|max:100000';
+        // Form Evaluasi: semua kolom wajib diisi (OD lama tidak ada lagi di lembar, tetap opsional)
+        $dec = 'required|numeric|min:0|max:100000';
         $d = $this->validateHeader($request) + $request->validate([
             'checks' => 'required|array|min:1|max:40',
-            'checks.*.check_time' => 'nullable|date_format:H:i',
+            'checks.*.check_time' => 'required|date_format:H:i',
             'checks.*.machine_id' => 'required|integer|exists:machines,id',
-            'checks.*.customer' => 'nullable|string|max:150',
-            'checks.*.dimension' => 'nullable|string|max:60',
-            'checks.*.od_mm' => $dec, 'checks.*.d1' => $dec, 'checks.*.d2' => $dec, 'checks.*.d3' => $dec, 'checks.*.d4' => $dec,
+            'checks.*.customer' => 'required|string|max:150',
+            'checks.*.dimension' => 'required|string|max:60',
+            'checks.*.planned_start' => 'required|date_format:H:i',
+            'checks.*.od_mm' => 'nullable|numeric|min:0|max:100000', 'checks.*.d1' => $dec, 'checks.*.d2' => $dec, 'checks.*.d3' => $dec, 'checks.*.d4' => $dec,
             'checks.*.thickness_mm' => $dec, 'checks.*.ib_height_mm' => $dec, 'checks.*.length_mm' => $dec,
             'checks.*.jig_option_id' => 'nullable|integer|exists:form_options,id',
             'checks.*.jig_other' => 'nullable|string|max:150',
             'checks.*.visual_option_id' => 'nullable|integer|exists:form_options,id',
             'checks.*.visual_other' => 'nullable|string|max:150',
-            'checks.*.compliance_option_id' => 'nullable|integer|exists:form_options,id',
+            'checks.*.compliance_option_ids' => 'nullable|array|max:20',
+            'checks.*.compliance_option_ids.*' => 'integer|exists:form_options,id',
             'checks.*.compliance_other' => 'nullable|string|max:150',
-            'checks.*.actual_cutting' => 'nullable|integer|min:0|max:10000000',
-            'checks.*.problem' => 'nullable|string|max:2000',
-            'checks.*.attachments' => 'nullable|array|max:20',
+            'checks.*.actual_cutting' => 'required|integer|min:0|max:10000000',
+            'checks.*.planned_qty' => 'required|integer|min:0|max:10000000',
+            'checks.*.problem' => 'required|string|max:2000',
+            'checks.*.attachments' => 'required|array|min:1|max:20',
             'checks.*.attachments.*' => 'integer',
         ], $this->messages(), $this->attributes());
 
         $groups = FormOption::pluck('group', 'id');
         $errors = [];
         foreach ($d['checks'] as $i => $c) {
-            foreach (['jig', 'visual', 'compliance'] as $g) {
+            foreach (['jig' => 'Jig', 'visual' => 'Visual'] as $g => $label) {
                 $id = $c[$g.'_option_id'] ?? null;
                 if ($id && ($groups[$id] ?? null) !== $g) {
                     $errors["checks.$i.{$g}_option_id"] = 'Pilihan tidak valid.';
+                }
+                if (! $id && blank($c[$g.'_other'] ?? null)) {
+                    $errors["checks.$i.{$g}_option_id"] = "$label wajib dicentang (atau isi Lainnya).";
+                }
+            }
+            if (empty($c['compliance_option_ids']) && blank($c['compliance_other'] ?? null)) {
+                $errors["checks.$i.compliance_option_ids"] = 'Kontrol kepatuhan wajib dicentang minimal satu.';
+            }
+            foreach ($c['compliance_option_ids'] ?? [] as $id) {
+                if (($groups[$id] ?? null) !== 'compliance') {
+                    $errors["checks.$i.compliance_option_ids"] = 'Pilihan tidak valid.';
                 }
             }
         }
@@ -180,15 +197,17 @@ class KaruFormService
                     'machine_id' => $c['machine_id'],
                     'customer_id' => $customerName ? Customer::firstOrCreate(['name' => $customerName])->id : null,
                     'dimension' => $c['dimension'] ?? null,
+                    'planned_start' => $c['planned_start'] ?? null,
                     'od_mm' => $c['od_mm'] ?? null, 'd1' => $c['d1'] ?? null, 'd2' => $c['d2'] ?? null, 'd3' => $c['d3'] ?? null, 'd4' => $c['d4'] ?? null,
                     'thickness_mm' => $c['thickness_mm'] ?? null, 'ib_height_mm' => $c['ib_height_mm'] ?? null, 'length_mm' => $c['length_mm'] ?? null,
                     'jig_option_id' => $c['jig_option_id'] ?? null, 'jig_other' => empty($c['jig_option_id']) ? ($c['jig_other'] ?? null) : null,
                     'visual_option_id' => $c['visual_option_id'] ?? null, 'visual_other' => empty($c['visual_option_id']) ? ($c['visual_other'] ?? null) : null,
-                    'compliance_option_id' => $c['compliance_option_id'] ?? null,
-                    'compliance_other' => empty($c['compliance_option_id']) ? ($c['compliance_other'] ?? null) : null,
+                    'compliance_other' => $c['compliance_other'] ?? null,
                     'actual_cutting' => $c['actual_cutting'] ?? null,
+                    'planned_qty' => $c['planned_qty'] ?? null,
                     'problem' => $c['problem'] ?? null,
                 ]);
+                $check->compliances()->sync(array_unique($c['compliance_option_ids'] ?? []));
                 $this->attach($c['attachments'] ?? [], 'evaluation_check', $check->id);
             }
 
@@ -217,7 +236,7 @@ class KaruFormService
     {
         return $request->validate([
             'form_date' => 'required|date|before_or_equal:today',
-            'shift' => 'required|integer|in:1,2,3',
+            'shift' => ['required', 'integer', Rule::in(array_keys(config('production.karu_shifts')))],
             'area_id' => 'nullable|integer|exists:areas,id',
         ], ['form_date.before_or_equal' => 'Tanggal tidak boleh melebihi hari ini.'], $this->attributes());
     }
@@ -288,6 +307,8 @@ class KaruFormService
             'integer' => ':attribute harus angka bulat.',
             'min' => ':attribute tidak boleh negatif.',
             'date_format' => 'Format jam tidak valid.',
+            'checks.*.attachments.required' => 'Evidence foto wajib, minimal 1 foto.',
+            'checks.*.attachments.min' => 'Evidence foto wajib, minimal 1 foto.',
         ];
     }
 
@@ -295,11 +316,16 @@ class KaruFormService
     {
         return [
             'form_date' => 'Tanggal', 'shift' => 'Shift', 'area_id' => 'Area',
-            'items.*.machine_id' => 'Mesin', 'checks.*.machine_id' => 'Mesin', 'items.*.machine_type' => 'Jenis mesin',
+            'items.*.machine_id' => 'Mesin', 'items.*.order_no' => 'No. PRO', 'checks.*.machine_id' => 'Mesin', 'items.*.machine_type' => 'Jenis mesin',
             'items.*.working_minutes' => 'Waktu kerja', 'items.*.cutting_minutes' => 'Cutting time',
             'items.*.std_output' => 'Std output', 'items.*.act_output' => 'Act output', 'items.*.ok_qty' => 'Hasil OK',
             'items.*.second_grade_qty' => 'Hasil 2nd grade', 'items.*.nc_qty' => 'Hasil NC', 'items.*.problems.*.minutes' => 'Menit',
-            'items.*.problems.*.kind' => 'Jenis problem',
+            'items.*.problems.*.kind' => 'Jenis problem', 'items.*.dimension' => 'Dimensi',
+            'checks.*.check_time' => 'Jam cek', 'checks.*.customer' => 'Customer', 'checks.*.dimension' => 'Size / dimensi',
+            'checks.*.planned_start' => 'Start jam planning', 'checks.*.planned_qty' => 'Qty planning',
+            'checks.*.d1' => 'D1', 'checks.*.d2' => 'D2', 'checks.*.d3' => 'D3', 'checks.*.d4' => 'D4',
+            'checks.*.thickness_mm' => 'Tebal', 'checks.*.ib_height_mm' => 'Tinggi IB', 'checks.*.length_mm' => 'Panjang',
+            'checks.*.actual_cutting' => 'Actual cutting', 'checks.*.problem' => 'Problem / keterangan',
         ];
     }
 }

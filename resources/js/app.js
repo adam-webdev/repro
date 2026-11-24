@@ -29,7 +29,6 @@ const SERIES = {
     light: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'],
     dark: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#0ca30c', '#9085e9', '#e66767'],
 };
-const SEQ_BLUE = ['#cde2fb', '#9ec5f4', '#6da7ec', '#3987e5', '#256abf', '#184f95'];
 const CRITICAL = '#d03b3b';
 const OTHER_GRAY = { light: '#b5b3ad', dark: '#5e5d59' };
 
@@ -108,6 +107,7 @@ Alpine.data('dashboard', (cfg) => ({
     charts: {},
     sort: { key: 'ok', dir: -1 },
     reqId: 0,
+    dt: { open: false, loading: false, key: '', name: '', color: '', bucket: null, data: null, reqId: 0 },
     presets: [
         { key: '1d', label: 'Hari terakhir' },
         { key: '7d', label: '7 hari' },
@@ -125,8 +125,32 @@ Alpine.data('dashboard', (cfg) => ({
 
     init() {
         this.initial = JSON.parse(JSON.stringify(this.f));
-        this.load();
         window.addEventListener('theme-changed', () => this.renderAll());
+        // Filter terakhir dipakai lagi saat kembali ke halaman ini (sampai user menekan Reset).
+        const saved = this.loadSaved();
+        if (saved) {
+            Object.assign(this.f, saved.f);
+            // area / mesin yang sudah tidak ada (mis. Area 04 digabung ke Area 03) kembali ke "Semua"
+            if (this.f.area_id && !cfg.machines.some(m => String(m.area_id) === String(this.f.area_id))) this.f.area_id = '';
+            if (this.f.machine_id && !cfg.machines.some(m => String(m.id) === String(this.f.machine_id))) this.f.machine_id = '';
+            this.preset = saved.preset;
+            // Periode cepat (mis. "30 hari") dihitung ulang dari data terbaru; tanggal manual dipakai apa adanya.
+            if (saved.preset && saved.preset !== 'custom') return this.applyPreset(saved.preset);
+        }
+        this.load();
+    },
+    storeKey() { return 'filters:' + (cfg.mode || 'dashboard'); },
+    loadSaved() {
+        try {
+            const s = JSON.parse(localStorage.getItem(this.storeKey()) || 'null');
+            return s && s.f ? s : null;
+        } catch (e) { return null; }
+    },
+    saveFilters() {
+        try {
+            if (this.isFiltered() || this.preset !== '30d') localStorage.setItem(this.storeKey(), JSON.stringify({ f: this.f, preset: this.preset }));
+            else localStorage.removeItem(this.storeKey());
+        } catch (e) {}
     },
 
     // ---------- util tampilan
@@ -135,7 +159,6 @@ Alpine.data('dashboard', (cfg) => ({
     fmtDate,
     fmtRange(r) { return r ? `${fmtDate(r[0])} – ${fmtDate(r[1])}` : ''; },
     periodLabel() { return { day: 'hari', week: 'minggu', month: 'bulan' }[this.f.period]; },
-    heatColors() { return SEQ_BLUE; },
     badge(v, good, warn) { if (v === null) return 'chip-muted'; return v >= good ? 'chip-ok' : (v >= warn ? 'chip-warn' : 'chip-crit'); },
     isFiltered() { return JSON.stringify(this.f) !== JSON.stringify(this.initial); },
     machineOptions() {
@@ -162,6 +185,7 @@ Alpine.data('dashboard', (cfg) => ({
     },
 
     async load() {
+        this.saveFilters();
         const id = ++this.reqId;
         this.loading = true;
         const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
@@ -172,6 +196,7 @@ Alpine.data('dashboard', (cfg) => ({
             this.d = data;
             this.f.period = data.filters.period;
             this.$nextTick(() => this.renderAll());
+            if (this.dt.open) this.openDowntime(this.dt.key, null, false); // filter berubah: rincian ikut periode baru
         } finally {
             if (id === this.reqId) this.loading = false;
         }
@@ -227,7 +252,6 @@ Alpine.data('dashboard', (cfg) => ({
 
     renderAll() {
         if (!this.d) return;
-        if (cfg.mode === 'karu') return this.renderKaru(); // halaman Monitoring Karu
         this.renderProduction();
         this.renderYield();
         this.renderDowntimeTrend();
@@ -237,85 +261,8 @@ Alpine.data('dashboard', (cfg) => ({
         this.renderNc();
         this.renderShift();
         this.renderArea();
-        this.renderHeatmap();
+        this.renderCuttingMachines();
         this.renderCustomers();
-    },
-
-    // ---------- kontrol karu
-    karuKpis() {
-        const k = this.d?.karu.kpi || {}, c = this.d?.karu.crosscheck || {};
-        return [
-            { label: 'Form Produksi', value: fmt(k.production_forms), sub: `${fmt(k.machines)} mesin dilaporkan` },
-            { label: 'Form Evaluasi', value: fmt(k.evaluation_forms), sub: `${fmt(k.checks)} pengecekan` },
-            { label: 'Karu aktif', value: fmt(k.karus), sub: 'mengisi form' },
-            { label: 'Visual tidak OK', value: fmt(k.visual_bad), sub: 'NG / perlu tindak lanjut', alert: k.visual_bad > 0 },
-            { label: 'Cocok dgn data admin', value: c.compared ? fmt((c.compared - c.flagged_count) / c.compared * 100, 0) + '%' : '-', sub: `${fmt(c.matched)} dari ${fmt(c.compared)} ada data admin` },
-            { label: 'Perlu dicek', value: fmt(c.flagged_count), sub: 'laporan karu ≠ data admin', alert: c.flagged_count > 0 },
-        ];
-    },
-
-    renderKaru() {
-        const t = theme(), k = this.d.karu;
-        if (k.problems.length) {
-            this.renderPareto('ch-karu-problems', k.problems.map(r => ({ ...r, name: `${r.name} (${r.kind})` })), 'minutes', 'mnt', 0);
-        } else {
-            this.empty('ch-karu-problems', 'Belum ada Set Up / DT dari Form Produksi');
-        }
-
-        // donut visual: OK = hijau, NG = merah (status), perlu tindak lanjut = kuning, lainnya = abu
-        const vis = k.visual;
-        if (!vis.length) {
-            this.empty('ch-karu-visual', 'Belum ada pengecekan visual');
-        } else {
-            const color = (n) => n === 'OK' ? t.series[2] : (n === 'NG' ? CRITICAL : (n === 'Lainnya' ? t.other : t.series[3]));
-            const total = vis.reduce((a, r) => a + r.count, 0);
-            this.draw('ch-karu-visual', base(t, {
-                chart: { type: 'donut', height: 300 },
-                series: vis.map(r => r.count),
-                labels: vis.map(r => r.name),
-                colors: vis.map(r => color(r.name)),
-                stroke: { width: 2, colors: [t.surface] },
-                legend: { position: 'bottom', fontSize: '12px', labels: { colors: t.ink2 }, markers: { size: 5, shape: 'circle' } },
-                plotOptions: { pie: { donut: { size: '68%', labels: { show: true,
-                    name: { fontSize: '12px', color: t.muted },
-                    value: { fontSize: '22px', fontWeight: 600, color: t.ink, formatter: v => fmt(+v) },
-                    total: { show: true, label: 'Pengecekan', color: t.muted, fontSize: '12px', formatter: () => fmt(total) } } } } },
-                tooltip: { theme: t.mode, y: { formatter: v => `${fmt(v)} pengecekan (${fmt(v / total * 100, 1)}%)` } },
-            }));
-        }
-
-        const hbar = (id, rows, emptyText) => {
-            if (!rows.length) return this.empty(id, emptyText);
-            this.draw(id, base(t, {
-                chart: { type: 'bar', height: Math.max(220, rows.length * 38 + 60) },
-                series: [{ name: 'Jumlah', data: rows.map(r => r.count) }],
-                colors: [t.series[0]],
-                plotOptions: { bar: { horizontal: true, barHeight: '58%', borderRadius: 4, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
-                dataLabels: { enabled: true, textAnchor: 'start', offsetX: 8, style: { fontSize: '11px', fontWeight: 500, colors: [t.ink2] }, formatter: v => fmt(v) },
-                xaxis: { categories: rows.map(r => r.name), axisBorder: { show: false }, axisTicks: { show: false }, min: 0,
-                    max: niceCeil(Math.max(...rows.map(r => r.count)) * 1.3), tickAmount: 4, labels: { formatter: v => fmt(v) } },
-                yaxis: { labels: { maxWidth: 170, style: { fontSize: '12px', colors: t.ink2 } } },
-                grid: { borderColor: t.grid, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
-                legend: { show: false },
-                tooltip: { theme: t.mode, y: { formatter: v => fmt(v) + ' pengecekan' } },
-            }));
-        };
-        hbar('ch-karu-compliance', k.compliance, 'Belum ada data kontrol kepatuhan');
-        hbar('ch-karu-jig', k.jig, 'Belum ada data JIG');
-
-        const a = k.by_karu;
-        if (!a.length) return this.empty('ch-karu-activity', 'Belum ada form karu');
-        this.draw('ch-karu-activity', base(t, {
-            chart: { type: 'bar', height: Math.max(220, a.length * 34 + 70), stacked: true },
-            series: [{ name: 'Mesin dilaporkan', data: a.map(r => r.prod) }, { name: 'Pengecekan', data: a.map(r => r.eval) }],
-            colors: t.series.slice(0, 2),
-            plotOptions: { bar: { horizontal: true, barHeight: '58%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last' } },
-            stroke: { show: true, width: 2, colors: [t.surface] },
-            xaxis: { categories: a.map(r => r.name), axisBorder: { show: false }, axisTicks: { show: false }, min: 0, tickAmount: 3, labels: { formatter: v => fmt(v) } },
-            yaxis: { labels: { maxWidth: 150, style: { fontSize: '12px', colors: t.ink2 } } },
-            grid: { borderColor: t.grid, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
-            tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: v => fmt(v) } },
-        }));
     },
 
     renderProduction() {
@@ -368,7 +315,11 @@ Alpine.data('dashboard', (cfg) => ({
         if (!dt.periods.length) return this.empty('ch-downtime-trend');
         const colorOf = this.categoryColors(t);
         this.draw('ch-downtime-trend', base(t, {
-            chart: { type: 'bar', height: 300, stacked: true },
+            chart: { type: 'bar', height: 300, stacked: true, events: {
+                dataPointSelection: (e, ctx, o) => this.openDowntime(dt.series[o.seriesIndex].key, dt.periods[o.dataPointIndex]),
+                legendClick: (ctx, i) => this.openDowntime(dt.series[i].key, null),
+            } },
+            legend: { ...base(t).legend, onItemClick: { toggleDataSeries: false } },
             series: dt.series.map(s => ({ name: s.name, data: s.data })),
             colors: dt.series.map(s => colorOf[s.key]),
             plotOptions: { bar: { columnWidth: dt.periods.length > 20 ? '72%' : '50%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last' } },
@@ -381,8 +332,32 @@ Alpine.data('dashboard', (cfg) => ({
     },
 
     categoryColors(t) {
-        const order = ['menunggu', 'setup', 'setting', 'tooling', 'rutin', 'breakdown', 'preventive', 'lain'];
-        return Object.fromEntries(order.map((k, i) => [k, t.series[i]]));
+        return { setup: t.series[3], downtime: t.series[0] }; // kelompok sesuai sheet DT Excel
+    },
+
+    /* Klik batang / donat Set Up & Downtime: tampilkan penyebab (kolom sheet DT), mesin & catatan keterangan. */
+    async openDowntime(key, bucket = null, scroll = true) {
+        const id = ++this.dt.reqId;
+        Object.assign(this.dt, {
+            open: true, loading: true, key, bucket, data: null,
+            name: { setup: 'Set Up', downtime: 'Downtime' }[key] || key, color: this.categoryColors(theme())[key],
+        });
+        if (scroll) this.$nextTick(() => document.getElementById('dt-detail')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+        const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
+        qs.set('category', key);
+        if (bucket) qs.set('bucket', bucket);
+        try {
+            const res = await fetch(cfg.detailEndpoint + '?' + qs, { headers: { Accept: 'application/json' } });
+            const data = await res.json();
+            if (id === this.dt.reqId) this.dt.data = data;
+        } finally {
+            if (id === this.dt.reqId) this.dt.loading = false;
+        }
+    },
+    dtRange() {
+        const r = this.dt.data;
+        if (!r) return this.dt.bucket ? periodLabel(this.dt.bucket, this.f.period) : 'seluruh periode filter';
+        return r.from === r.to ? fmtDate(r.from) : `${fmtDate(r.from)} – ${fmtDate(r.to)}`;
     },
 
     renderDowntimeCat() {
@@ -391,12 +366,15 @@ Alpine.data('dashboard', (cfg) => ({
         const colorOf = this.categoryColors(t);
         const total = rows.reduce((a, r) => a + r.hours, 0);
         this.draw('ch-downtime-cat', base(t, {
-            chart: { type: 'donut', height: 320 },
+            chart: { type: 'donut', height: 320, events: {
+                dataPointSelection: (e, ctx, o) => this.openDowntime(rows[o.dataPointIndex].key, null),
+                legendClick: (ctx, i) => this.openDowntime(rows[i].key, null),
+            } },
             series: rows.map(r => r.hours),
             labels: rows.map(r => r.name),
             colors: rows.map(r => colorOf[r.key]),
             stroke: { width: 2, colors: [t.surface] },
-            legend: { position: 'bottom', fontSize: '12px', labels: { colors: t.ink2 }, markers: { size: 5, shape: 'circle' } },
+            legend: { position: 'bottom', fontSize: '12px', labels: { colors: t.ink2 }, markers: { size: 5, shape: 'circle' }, onItemClick: { toggleDataSeries: false } },
             plotOptions: { pie: { donut: { size: '68%', labels: { show: true,
                 name: { fontSize: '12px', color: t.muted },
                 value: { fontSize: '22px', fontWeight: 600, color: t.ink, formatter: v => fmt(+v, 0) + ' j' },
@@ -486,30 +464,38 @@ Alpine.data('dashboard', (cfg) => ({
         }));
     },
 
-    renderHeatmap() {
-        const t = theme(), h = this.d.heatmap;
-        if (!h.rows.length) return this.empty('ch-heatmap');
-        const series = [...h.rows].reverse().map(r => ({
-            name: r.machine,
-            data: h.periods.map((p, i) => ({ x: periodLabel(p, h.period), y: r.values[i] === null ? -1 : r.values[i] })),
-        }));
-        this.draw('ch-heatmap', base(t, {
-            chart: { type: 'heatmap', height: Math.max(260, h.rows.length * 22 + 70), toolbar: { show: true, tools: { download: true } } },
-            series,
-            stroke: { width: 2, colors: [t.surface] },
-            plotOptions: { heatmap: { radius: 3, enableShades: false, colorScale: { ranges: [
-                { from: -1, to: -0.5, color: t.empty, name: 'Tidak ada data' },
-                { from: 0, to: 60, color: SEQ_BLUE[0] },
-                { from: 60, to: 75, color: SEQ_BLUE[1] },
-                { from: 75, to: 85, color: SEQ_BLUE[2] },
-                { from: 85, to: 92, color: SEQ_BLUE[3] },
-                { from: 92, to: 96, color: SEQ_BLUE[4] },
-                { from: 96, to: 101, color: SEQ_BLUE[5] },
-            ] } } },
+    /* Cutting time % per mesin: batang berwarna status + garis yang menyambung puncak batang + garis rata-rata. */
+    renderCuttingMachines() {
+        const t = theme();
+        const rows = (this.d.machines || []).filter(m => m.cutting_pct !== null);
+        if (!rows.length) return this.empty('ch-cutting-machine');
+        const avg = this.d.kpi?.cutting_pct;
+        const color = (v) => v >= 85 ? t.series[2] : (v >= 75 ? t.series[3] : CRITICAL);
+        this.draw('ch-cutting-machine', base(t, {
+            chart: { type: 'line', height: 340 },
+            series: [
+                { name: 'Cutting time', type: 'column', data: rows.map(r => ({ x: r.code, y: r.cutting_pct, fillColor: color(r.cutting_pct) })) },
+                { name: 'Garis tren', type: 'line', data: rows.map(r => ({ x: r.code, y: r.cutting_pct })) },
+            ],
+            colors: [t.series[0], t.ink2],
+            stroke: { width: [0, 2.5], curve: 'smooth' },
+            fill: { opacity: [0.92, 1] },
+            markers: { size: [0, 4], strokeWidth: 2, strokeColors: t.surface, colors: [t.ink2], hover: { size: 6 } },
+            plotOptions: { bar: { columnWidth: rows.length > 25 ? '72%' : '55%', borderRadius: 4, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
+            dataLabels: { enabled: true, enabledOnSeries: [0], offsetY: -18, formatter: v => fmt(v, 0) + '%',
+                style: { fontSize: '10.5px', fontWeight: 600, colors: [t.ink2] }, background: { enabled: false } },
+            xaxis: { type: 'category', axisBorder: { color: t.axis }, axisTicks: { show: false },
+                labels: { rotate: -45, rotateAlways: rows.length > 14, style: { fontSize: '11px' } } },
+            yaxis: { min: 0, max: 110, tickAmount: 5, labels: { formatter: v => fmt(v, 0) + '%' } },
+            annotations: avg === null || avg === undefined ? {} : { yaxis: [{ y: avg, borderColor: t.series[0], strokeDashArray: 5, borderWidth: 1.5,
+                label: { text: 'Rata-rata ' + fmt(avg, 1) + '%', position: 'left', textAnchor: 'start', borderWidth: 0,
+                    style: { background: t.series[0], color: '#fff', fontSize: '11px', padding: { left: 6, right: 6, top: 2, bottom: 2 } } } }] },
             legend: { show: false },
-            xaxis: { axisBorder: { show: false }, axisTicks: { show: false }, labels: { rotate: -45, hideOverlappingLabels: true, style: { fontSize: '11px' } } },
-            yaxis: { labels: { style: { fontSize: '11.5px', colors: t.ink2 } } },
-            tooltip: { theme: t.mode, y: { formatter: v => v < 0 ? 'Tidak ada data' : fmt(v, 1) + '% cutting time' } },
+            tooltip: { theme: t.mode, shared: true, intersect: false, custom: ({ dataPointIndex: i }) => {
+                const r = rows[i];
+                return `<div class="px-3 py-2 text-[12px]"><div class="font-semibold mb-0.5">${r.code}</div>`
+                    + `Cutting time ${fmt(r.cutting_pct, 1)}%<br>Downtime ${fmt(r.downtime_hours, 1)} jam · ${r.area || '-'}</div>`;
+            } },
         }));
     },
 
@@ -528,6 +514,223 @@ Alpine.data('dashboard', (cfg) => ({
             grid: { borderColor: t.grid, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
             legend: { show: false },
             tooltip: { theme: t.mode, y: { formatter: (v, o) => `${fmt(v)} pcs · ${fmt(rows[o.dataPointIndex].kg / 1000, 1)} ton` } },
+        }));
+    },
+}));
+
+/* ------------------------------------------------------------------ monitoring karu (Monitoring Daily) */
+/* Palet papan Monitoring Daily: selalu gelap seperti layar monitor produksi (gambar referensi). */
+function boardTheme() {
+    return {
+        mode: 'dark', series: SERIES.dark, ink: '#f1f5f9', ink2: '#cbd5e1', muted: '#94a3b8', grid: '#24314f', axis: '#33415f',
+        surface: '#121a2e', other: OTHER_GRAY.dark, empty: '#1c2742',
+        teal: '#5ee6b4', blue: '#60a5fa', gold: '#f5b301', pink: '#f472b6', good: '#22c55e', bad: '#ef4444',
+    };
+}
+
+Alpine.data('monitoringDaily', (cfg) => ({
+    f: { group: cfg.filters.group || '', date: cfg.filters.date, shift: cfg.filters.shift ? String(cfg.filters.shift) : '' },
+    initial: null,
+    d: null,
+    loading: false,
+    charts: {},
+    reqId: 0,
+
+    init() {
+        this.initial = { group: '', date: cfg.today, shift: '' };
+        window.addEventListener('theme-changed', () => this.renderAll());
+        // Filter terakhir dipakai lagi saat kembali ke halaman ini (sampai user menekan Reset).
+        try {
+            const saved = JSON.parse(localStorage.getItem('filters:monitoring-daily') || 'null');
+            if (saved) Object.assign(this.f, saved);
+        } catch (e) {}
+        this.load();
+    },
+    isFiltered() { return JSON.stringify(this.f) !== JSON.stringify(this.initial); },
+    reset() { this.f = { ...this.initial }; this.load(); },
+    num: (v, d = 0) => fmt(v, d),
+    shortDate(s) {
+        if (!s) return '';
+        const [y, m, d] = s.split('-');
+        return `${d}-${m}-${y}`;
+    },
+    groupShort() { return this.d ? (this.d.filters.group || 'semua mesin') : ''; },
+
+    async load() {
+        try {
+            if (this.isFiltered()) localStorage.setItem('filters:monitoring-daily', JSON.stringify(this.f));
+            else localStorage.removeItem('filters:monitoring-daily');
+        } catch (e) {}
+        const id = ++this.reqId;
+        this.loading = true;
+        const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
+        try {
+            const res = await fetch(cfg.endpoint + '?' + qs, { headers: { Accept: 'application/json' } });
+            const data = await res.json();
+            if (id !== this.reqId) return;
+            this.d = data;
+            this.f.date = data.filters.date;
+            this.$nextTick(() => this.renderAll());
+        } finally {
+            if (id === this.reqId) this.loading = false;
+        }
+    },
+
+    kpis() {
+        const k = this.d?.kpi || {}, c = this.d?.kpi_change || {};
+        const has = (v) => v !== null && v !== undefined;
+        return [
+            { key: 'pc', label: 'Total PC', value: fmt(k.total_pc), change: c.total_pc ?? null, sub: 'vs kemarin' },
+            { key: 'eff', label: 'Efficiency', value: has(k.efficiency) ? fmt(k.efficiency, 0) + '%' : '-', change: c.efficiency ?? null, sub: 'Act ÷ Std' },
+            { key: 'prod', label: 'Productivity', value: has(k.productivity) ? fmt(k.productivity, 0) + '%' : '-', change: c.productivity ?? null,
+                sub: k.planned_qty ? `plan ${short(k.planned_qty)}` : 'belum ada planning' },
+        ];
+    },
+
+    draw(id, options) {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (this.charts[id]) this.charts[id].destroy();
+        el.innerHTML = '';
+        this.charts[id] = new ApexCharts(el, options);
+        this.charts[id].render();
+    },
+    empty(id, text = 'Belum ada data Form Produksi karu', h = 200) {
+        if (this.charts[id]) { this.charts[id].destroy(); delete this.charts[id]; }
+        const el = document.getElementById(id);
+        if (el) el.innerHTML = `<div class="grid place-items-center text-[13px]" style="height:${h}px;color:var(--md-muted)">${text}</div>`;
+    },
+
+    renderAll() {
+        if (!this.d) return;
+        this.renderMonth();
+        this.renderLoss();
+        this.renderProduction();
+        this.renderEfficiency();
+        this.renderNg();
+    },
+
+    /* 3. Produksi harian 1 bulan + segitiga hijau / merah vs target harian di bawah tanggal */
+    renderMonth() {
+        const t = boardTheme(), days = this.d.month.days;
+        if (!days.some(r => r.pcs > 0)) return this.empty('ch-md-month');
+        const mark = (r) => r.pcs <= 0 || !r.target ? '' : (r.pcs >= r.target ? '▲' : '▼');
+        const markColor = (r) => r.pcs <= 0 || !r.target ? t.muted : (r.pcs >= r.target ? t.good : t.bad);
+        this.draw('ch-md-month', base(t, {
+            chart: { type: 'line', height: 210, toolbar: { show: false } },
+            series: [{ name: 'Produksi', data: days.map(r => r.pcs) }],
+            colors: [t.teal],
+            stroke: { width: 2, curve: 'straight' },
+            markers: { size: 3, strokeWidth: 0, hover: { size: 5 } },
+            dataLabels: { enabled: true, offsetY: -4, formatter: v => v > 0 ? short(v) : '', style: { fontSize: '8.5px', fontWeight: 500, colors: [t.ink] }, background: { enabled: false } },
+            xaxis: { categories: days.map(r => [String(r.day), mark(r)]), axisBorder: { color: t.axis }, axisTicks: { show: false }, tooltip: { enabled: false },
+                labels: { rotate: 0, hideOverlappingLabels: false, style: { fontSize: '9px', colors: days.map(markColor) } } },
+            yaxis: { min: 0, tickAmount: 3, labels: { formatter: v => short(v), style: { fontSize: '10px' } } },
+            grid: { borderColor: t.grid, padding: { left: 0, right: 4, top: 0 } },
+            legend: { show: false },
+            tooltip: { theme: t.mode, y: { formatter: (v, o) => {
+                const r = days[o.dataPointIndex];
+                return `${fmt(v)} pcs` + (r.target ? ` · target ${fmt(r.target)}` : '');
+            } } },
+        }));
+    },
+
+    /* 4. Stacked bar menit Set Up & Downtime per tanggal */
+    renderLoss() {
+        const t = boardTheme(), days = this.d.month.days;
+        if (!days.some(r => r.setup + r.downtime > 0)) return this.empty('ch-md-loss', 'Belum ada Set Up / Downtime');
+        this.draw('ch-md-loss', base(t, {
+            chart: { type: 'bar', height: 210, stacked: true, toolbar: { show: false } },
+            series: [{ name: 'Set up', data: days.map(r => r.setup) }, { name: 'Downtime', data: days.map(r => r.downtime) }],
+            colors: [t.gold, t.bad],
+            plotOptions: { bar: { columnWidth: '70%', borderRadius: 2, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last' } },
+            xaxis: { categories: days.map(r => String(r.day)), axisBorder: { color: t.axis }, axisTicks: { show: false },
+                labels: { rotate: 0, hideOverlappingLabels: true, style: { fontSize: '9px' } } },
+            yaxis: { labels: { formatter: v => fmt(v), style: { fontSize: '10px' } } },
+            grid: { borderColor: t.grid, padding: { left: 0, right: 4, top: 0 } },
+            legend: { position: 'top', horizontalAlign: 'right', fontSize: '11px', labels: { colors: t.ink2 }, markers: { size: 4 } },
+            tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: v => fmt(v) + ' mnt' } },
+        }));
+    },
+
+    /* 5. Bar total pcs per mesin + garis Cutting Time % dan ET & SU Rate % (sumbu kanan) */
+    renderProduction() {
+        const t = boardTheme(), rows = this.d.machines;
+        if (!rows.length) return this.empty('ch-md-production', undefined, 300);
+        const maxPcs = niceCeil(Math.max(1, ...rows.map(r => r.pcs)) * 1.15);
+        this.draw('ch-md-production', base(t, {
+            chart: { type: 'line', height: 310, toolbar: { show: false } },
+            series: [
+                { name: 'Total cutting pcs', type: 'column', data: rows.map(r => r.pcs) },
+                { name: 'Cutting time %', type: 'line', data: rows.map(r => r.cutting_pct) },
+                { name: 'ET & SU rate %', type: 'line', data: rows.map(r => r.loss_pct) },
+            ],
+            colors: [t.teal, t.blue, t.gold],
+            stroke: { width: [0, 2.5, 2.5], curve: 'straight' },
+            markers: { size: [0, 4, 4], strokeWidth: 0 },
+            plotOptions: { bar: { columnWidth: '55%', borderRadius: 3, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
+            dataLabels: { enabled: true, offsetY: -6, formatter: (v, o) => o.seriesIndex === 0 ? fmt(v) : fmt(v, 0) + '%',
+                style: { fontSize: '9.5px', fontWeight: 600, colors: [t.ink, t.blue, t.gold] }, background: { enabled: false } },
+            xaxis: { categories: rows.map(r => r.code), axisBorder: { color: t.axis }, axisTicks: { show: false },
+                labels: { rotate: -45, rotateAlways: rows.length > 8, style: { fontSize: '10px' } } },
+            yaxis: [
+                { seriesName: 'Total cutting pcs', min: 0, max: maxPcs, tickAmount: 4, labels: { formatter: v => short(v), style: { fontSize: '10px' } } },
+                { seriesName: 'Cutting time %', opposite: true, min: 0, max: 100, tickAmount: 4, labels: { formatter: v => fmt(v, 0) + '%', style: { fontSize: '10px' } } },
+                { seriesName: 'Cutting time %', show: false, min: 0, max: 100 },
+            ],
+            legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '11px', labels: { colors: t.ink2 }, markers: { size: 4 } },
+            tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: (v, o) => o.seriesIndex === 0 ? fmt(v) + ' pcs' : fmt(v, 1) + '%' } },
+        }));
+    },
+
+    /* 6. Bar Act/Std % per mesin (hijau >= target, merah < target) + lingkaran NG rate % di dasar batang */
+    renderEfficiency() {
+        const t = boardTheme(), rows = this.d.machines;
+        if (!rows.length) return this.empty('ch-md-eff', undefined, 300);
+        const eff = rows.map(r => r.efficiency ?? 0);
+        const max = niceCeil(Math.max(100, ...eff) * 1.12);
+        const bottom = max * 0.05; // posisi lingkaran NG rate di dasar batang
+        this.draw('ch-md-eff', base(t, {
+            chart: { type: 'line', height: 310, toolbar: { show: false } },
+            series: [
+                { name: 'Act/Std', type: 'column', data: rows.map(r => ({ x: r.code, y: r.efficiency ?? 0,
+                    fillColor: (r.efficiency ?? 0) >= r.target_efficiency ? t.good : t.bad })) },
+                { name: 'NG Rate %', type: 'line', data: rows.map(r => ({ x: r.code, y: bottom })) },
+            ],
+            colors: [t.good, t.pink],
+            stroke: { width: [0, 0] },
+            markers: { size: [0, 9], strokeWidth: 2, strokeColors: t.surface, colors: [t.pink], hover: { size: 10 } },
+            plotOptions: { bar: { columnWidth: '60%', borderRadius: 3, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
+            dataLabels: { enabled: true, offsetY: -6, formatter: (v, o) => o.seriesIndex === 0 ? fmt(v, 0) + '%' : fmt(rows[o.dataPointIndex].ng_rate, 1) + '%',
+                style: { fontSize: '9.5px', fontWeight: 600, colors: [t.ink, t.pink] }, background: { enabled: false } },
+            xaxis: { type: 'category', axisBorder: { color: t.axis }, axisTicks: { show: false },
+                labels: { rotate: -45, rotateAlways: rows.length > 8, style: { fontSize: '10px' } } },
+            yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: v => fmt(v, 0) + '%', style: { fontSize: '10px' } } },
+            legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '11px', labels: { colors: t.ink2 }, markers: { size: 4 } },
+            tooltip: { theme: t.mode, shared: true, intersect: false, custom: ({ dataPointIndex: i }) => {
+                const r = rows[i];
+                return `<div class="px-3 py-2 text-[12px]"><div class="font-semibold mb-0.5">${r.code}</div>`
+                    + `Act/Std ${r.efficiency === null ? '-' : fmt(r.efficiency, 1) + '%'} (target ${fmt(r.target_efficiency, 0)}%)<br>`
+                    + `NG rate ${fmt(r.ng_rate, 2)}% · ${fmt(r.ng)} dari ${fmt(r.pcs)} pcs</div>`;
+            } },
+        }));
+    },
+
+    /* 7. NG tertinggi per mesin (NG rate %), urut terbesar */
+    renderNg() {
+        const t = boardTheme(), rows = this.d.ng_top;
+        if (!rows.length) return this.empty('ch-md-ng', 'Tidak ada NG pada tanggal ini', 300);
+        this.draw('ch-md-ng', base(t, {
+            chart: { type: 'bar', height: 310, toolbar: { show: false } },
+            series: [{ name: 'NG rate', data: rows.map(r => r.rate) }],
+            colors: [t.pink],
+            plotOptions: { bar: { columnWidth: '55%', borderRadius: 3, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
+            dataLabels: { enabled: true, offsetY: -16, formatter: v => fmt(v, 1) + '%', style: { fontSize: '10px', fontWeight: 600, colors: [t.ink] } },
+            xaxis: { categories: rows.map(r => r.code), axisBorder: { color: t.axis }, axisTicks: { show: false },
+                labels: { rotate: -45, rotateAlways: rows.length > 5, style: { fontSize: '10px' } } },
+            yaxis: { min: 0, max: niceCeil(Math.max(...rows.map(r => r.rate)) * 1.25), tickAmount: 4, labels: { formatter: v => fmt(v, 1) + '%', style: { fontSize: '10px' } } },
+            legend: { show: false },
+            tooltip: { theme: t.mode, y: { formatter: (v, o) => `${fmt(v, 2)}% · ${fmt(rows[o.dataPointIndex].ng)} dari ${fmt(rows[o.dataPointIndex].pcs)} pcs` } },
         }));
     },
 }));
@@ -573,7 +776,14 @@ Alpine.data('employeeCard', () => ({
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
 const pad2 = (n) => String(n).padStart(2, '0');
 const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
-const guessShift = () => { const h = new Date().getHours(); return h >= 7 && h < 15 ? 1 : (h >= 15 && h < 23 ? 2 : 3); };
+/* Shift karu: 1 = 07–18, 2 = 18–07. Lewat tengah malam masih shift 2 dengan tanggal hari sebelumnya. */
+const guessShift = () => { const h = new Date().getHours(); return h >= 7 && h < 18 ? 1 : 2; };
+const guessFormDate = (today) => {
+    if (new Date().getHours() >= 7) return today;
+    const d = new Date(today + 'T12:00:00');
+    d.setDate(d.getDate() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
 
 /* Perkecil foto di HP sebelum diunggah (maks 1600 px, JPEG) supaya cepat & hemat penyimpanan. */
 async function compressImage(file, max = 1600, quality = 0.82) {
@@ -610,12 +820,15 @@ function karuFormBase(cfg) {
                 row.photos.push({ id: null, url: URL.createObjectURL(f), uploading: true, error: '' });
                 const tmp = row.photos[row.photos.length - 1]; // ambil versi reaktif (proxy) supaya tampilan ikut berubah
                 try {
+                    const file = await compressImage(f);
+                    // Normalnya foto sudah diperkecil (±200–500 KB). Bila HP gagal memperkecil, jangan kirim file raksasa.
+                    if (file.size > 8 * 1024 * 1024) throw new Error('Foto terlalu besar (maks 8 MB). Ambil ulang dengan resolusi lebih kecil.');
                     const body = new FormData();
-                    body.append('file', await compressImage(f));
+                    body.append('file', file);
                     const res = await fetch(cfg.uploadUrl, { method: 'POST', body, headers: { Accept: 'application/json', 'X-CSRF-TOKEN': csrf() } });
                     const data = await res.json().catch(() => ({}));
                     if (!res.ok) throw new Error(data.errors?.file?.[0] || data.message || 'Gagal mengunggah');
-                    Object.assign(tmp, { id: data.id, uploading: false });
+                    Object.assign(tmp, { id: data.id, serverUrl: data.url, uploading: false });
                 } catch (e) {
                     Object.assign(tmp, { uploading: false, error: e.message });
                 } finally {
@@ -627,6 +840,36 @@ function karuFormBase(cfg) {
 
         clean(v) { return v === '' || v === undefined ? null : v; },
         optVal(v) { return v === 'other' || v === '' || v === undefined ? null : Number(v); },
+
+        /*
+         * Draf otomatis di perangkat: isian yang sudah diketik tidak hilang walau gagal simpan, sesi login habis,
+         * koneksi putus atau halaman termuat ulang. Draf dihapus setelah form berhasil disimpan.
+         */
+        draftKey: 'draft:' + location.pathname,
+        draftRestored: false,
+        withDraft(fresh) {
+            try {
+                const d = JSON.parse(localStorage.getItem(this.draftKey) || 'null');
+                if (d?.f && Date.now() - d.at < 14 * 864e5) { this.draftRestored = true; return d.f; }
+            } catch (e) { /* penyimpanan tidak tersedia */ }
+            return fresh;
+        },
+        watchDraft() {
+            let timer;
+            this.$watch('f', () => { clearTimeout(timer); timer = setTimeout(() => this.saveDraft(), 400); });
+        },
+        saveDraft() {
+            const f = JSON.parse(JSON.stringify(this.f, (k, v) => k === 'photos'
+                ? v.filter(p => p.id).map(p => ({ id: p.id, url: p.serverUrl || p.url }))
+                : v));
+            try { localStorage.setItem(this.draftKey, JSON.stringify({ at: Date.now(), f })); } catch (e) { /* penuh / diblokir */ }
+        },
+        clearDraft() { try { localStorage.removeItem(this.draftKey); } catch (e) { /* abaikan */ } },
+        discardDraft() {
+            if (!confirm('Buang isian yang belum tersimpan dan mulai dari awal?')) return;
+            this.clearDraft();
+            location.reload();
+        },
 
         async submit(payload) {
             if (this.uploading) { this.message = 'Tunggu, foto masih diunggah…'; return; }
@@ -646,10 +889,15 @@ function karuFormBase(cfg) {
                     this.$nextTick(() => document.querySelector('[data-error="1"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
                     return;
                 }
-                if (!res.ok) { this.message = data.message || 'Gagal menyimpan. Coba lagi.'; return; }
+                if (res.status === 419 || res.status === 401) {
+                    this.message = 'Sesi login habis. Isian Anda aman tersimpan di perangkat ini — muat ulang halaman / login lagi, lalu tekan Simpan.';
+                    return;
+                }
+                if (!res.ok) { this.message = data.message || 'Gagal menyimpan. Isian tetap ada, coba lagi.'; return; }
+                this.clearDraft();
                 window.location = data.redirect;
             } catch (e) {
-                this.message = 'Koneksi terputus. Data belum tersimpan, coba lagi.';
+                this.message = 'Koneksi terputus. Isian tetap ada, data belum tersimpan — coba Simpan lagi.';
             } finally {
                 this.saving = false;
             }
@@ -662,24 +910,28 @@ Alpine.data('productionForm', (cfg) => ({
     f: null,
     init() {
         const p = cfg.payload;
-        this.f = {
-            form_date: p?.form_date || cfg.today,
+        this.f = this.withDraft({
+            form_date: p?.form_date || guessFormDate(cfg.today),
             shift: p?.shift || guessShift(),
             area_id: p?.area_id || '',
             items: (p?.items || []).map(it => ({ ...this.newItem(), ...it, open: false })),
-        };
+        });
+        this.f.items = this.f.items.map(it => ({ ...this.newItem(), ...it }));
         if (!this.f.items.length) this.addItem();
+        this.watchDraft();
     },
-    newItem() {
-        return { machine_type: '', machine_id: '', dimension: '', working_minutes: '', cutting_minutes: '', std_output: '', act_output: '',
+    /* Satu baris = satu PRO di satu mesin. PRO baru membawa mesin dari baris sebelumnya (ganti PRO di mesin yang sama). */
+    newItem(prev = null) {
+        return { machine_type: prev?.machine_type || '', machine_id: prev?.machine_id || '', order_no: '', dimension: '', working_minutes: '', cutting_minutes: '', std_output: '', act_output: '',
             ok_qty: '', second_grade_qty: '', nc_qty: '', note: '', problems: [], photos: [], open: true };
     },
     addItem() {
+        const prev = this.f.items[this.f.items.length - 1];
         this.f.items.forEach(i => i.open = false);
-        this.f.items.push(this.newItem());
+        this.f.items.push(this.newItem(prev));
         this.$nextTick(() => document.getElementById('item-' + (this.f.items.length - 1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     },
-    removeItem(i) { if (confirm('Hapus mesin #' + (i + 1) + ' dari form?')) this.f.items.splice(i, 1); },
+    removeItem(i) { if (confirm('Hapus PRO #' + (i + 1) + ' dari form?')) this.f.items.splice(i, 1); },
     machinesFor(it) {
         return this.cfg.machines.filter(m => (!it.machine_type || m.type === it.machine_type) && (!this.f.area_id || !m.area_id || String(m.area_id) === String(this.f.area_id)));
     },
@@ -692,8 +944,9 @@ Alpine.data('productionForm', (cfg) => ({
         this.fixProblems(it);
     },
     problemOptions(it, kind) {
-        return kind === 'setup' ? this.opts('setup') : this.opts('dt').filter(o => !o.type || o.type === (it.machine_type || 'umum'));
+        return kind === 'dt' ? this.opts('dt').filter(o => !o.type || o.type === (it.machine_type || 'umum')) : this.opts(kind);
     },
+    kindLabel(kind) { return { setup: 'SET UP', bongkar: 'BONGKAR', dt: 'DT' }[kind] || 'DT'; },
     fixProblems(it) {
         it.problems.forEach(p => {
             if (p.option_id && p.option_id !== 'other' && !this.problemOptions(it, p.kind).some(o => String(o.id) === String(p.option_id))) p.option_id = '';
@@ -702,11 +955,12 @@ Alpine.data('productionForm', (cfg) => ({
     addProblem(it, kind) { it.problems.push({ kind, option_id: '', other_text: '', minutes: '' }); },
     totalMinutes(it, kind) { return it.problems.filter(p => p.kind === kind).reduce((a, p) => a + (+p.minutes || 0), 0); },
     summary(it) {
-        const parts = [this.machineCode(it.machine_id) || 'Mesin belum dipilih'];
+        const parts = [it.order_no ? 'PRO ' + it.order_no : 'PRO belum diisi'];
         if (it.ok_qty !== '' && it.ok_qty !== null) parts.push(`OK ${fmt(+it.ok_qty)}`);
-        const dt = this.totalMinutes(it, 'dt'), su = this.totalMinutes(it, 'setup');
+        const dt = this.totalMinutes(it, 'dt'), su = this.totalMinutes(it, 'setup'), bk = this.totalMinutes(it, 'bongkar');
         if (dt) parts.push(`DT ${dt} mnt`);
         if (su) parts.push(`Set up ${su} mnt`);
+        if (bk) parts.push(`Bongkar ${bk} mnt`);
         if (it.photos.length) parts.push(`${it.photos.length} foto`);
         return parts.join(' · ');
     },
@@ -714,7 +968,7 @@ Alpine.data('productionForm', (cfg) => ({
         this.submit({
             form_date: this.f.form_date, shift: Number(this.f.shift), area_id: this.clean(this.f.area_id),
             items: this.f.items.map(it => ({
-                machine_type: it.machine_type || 'umum', machine_id: this.clean(it.machine_id), dimension: this.clean(it.dimension),
+                machine_type: it.machine_type || 'umum', machine_id: this.clean(it.machine_id), order_no: this.clean(it.order_no), dimension: this.clean(it.dimension),
                 working_minutes: this.clean(it.working_minutes), cutting_minutes: this.clean(it.cutting_minutes),
                 std_output: this.clean(it.std_output), act_output: this.clean(it.act_output), ok_qty: this.clean(it.ok_qty),
                 second_grade_qty: this.clean(it.second_grade_qty), nc_qty: this.clean(it.nc_qty), note: this.clean(it.note),
@@ -731,18 +985,22 @@ Alpine.data('evaluationForm', (cfg) => ({
     f: null,
     init() {
         const p = cfg.payload;
-        this.f = {
-            form_date: p?.form_date || cfg.today,
+        this.f = this.withDraft({
+            form_date: p?.form_date || guessFormDate(cfg.today),
             shift: p?.shift || guessShift(),
             area_id: p?.area_id || '',
             checks: (p?.checks || []).map(c => ({ ...this.newCheck(), ...c })),
-        };
+        });
+        this.f.checks = this.f.checks.map(c => ({ ...this.newCheck(), ...c }));
         if (!this.f.checks.length) this.addCheck();
+        this.watchDraft();
     },
     newCheck(prev = null) {
         return { check_time: nowHM(), machine_id: prev?.machine_id || '', customer: prev?.customer || '', dimension: prev?.dimension || '',
+            planned_start: prev?.planned_start || '', planned_qty: prev?.planned_qty ?? '',
             od_mm: '', d1: '', d2: '', d3: '', d4: '', thickness_mm: '', ib_height_mm: '', length_mm: '',
-            jig_option_id: '', jig_other: '', visual_option_id: '', visual_other: '', compliance_option_id: '', compliance_other: '',
+            jig_option_id: '', jig_other: '', visual_option_id: '', visual_other: '',
+            compliance_ids: [], compliance_other_on: false, compliance_other: '',
             actual_cutting: '', problem: '', photos: [] };
     },
     /* Pengecekan baru otomatis membawa mesin, customer & dimensi dari pengecekan sebelumnya (bisa diganti). */
@@ -750,6 +1008,10 @@ Alpine.data('evaluationForm', (cfg) => ({
         const prev = this.f.checks[this.f.checks.length - 1];
         this.f.checks.push(this.newCheck(prev));
         this.$nextTick(() => document.getElementById('check-' + (this.f.checks.length - 1))?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+    },
+    toggleCompliance(c, id, on) {
+        const rest = c.compliance_ids.filter(x => String(x) !== String(id));
+        c.compliance_ids = on ? [...rest, id] : rest;
     },
     removeCheck(i) { if (confirm('Hapus baris pengecekan #' + (i + 1) + '?')) this.f.checks.splice(i, 1); },
     machinesFor() { return this.cfg.machines.filter(m => !this.f.area_id || !m.area_id || String(m.area_id) === String(this.f.area_id)); },
@@ -767,11 +1029,12 @@ Alpine.data('evaluationForm', (cfg) => ({
             form_date: this.f.form_date, shift: Number(this.f.shift), area_id: n(this.f.area_id),
             checks: this.f.checks.map(c => ({
                 check_time: n(c.check_time), machine_id: n(c.machine_id), customer: n(c.customer), dimension: n(c.dimension),
+                planned_start: n(c.planned_start), planned_qty: n(c.planned_qty),
                 od_mm: n(c.od_mm), d1: n(c.d1), d2: n(c.d2), d3: n(c.d3), d4: n(c.d4), thickness_mm: n(c.thickness_mm),
                 ib_height_mm: n(c.ib_height_mm), length_mm: n(c.length_mm),
                 jig_option_id: this.optVal(c.jig_option_id), jig_other: c.jig_option_id === 'other' ? n(c.jig_other) : null,
                 visual_option_id: this.optVal(c.visual_option_id), visual_other: c.visual_option_id === 'other' ? n(c.visual_other) : null,
-                compliance_option_id: this.optVal(c.compliance_option_id), compliance_other: c.compliance_option_id === 'other' ? n(c.compliance_other) : null,
+                compliance_option_ids: c.compliance_ids.map(Number), compliance_other: c.compliance_other_on ? n(c.compliance_other) : null,
                 actual_cutting: n(c.actual_cutting), problem: n(c.problem),
                 attachments: c.photos.filter(x => x.id).map(x => x.id),
             })),

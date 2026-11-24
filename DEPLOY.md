@@ -84,3 +84,30 @@ Pilihan:
 - Jangan jalankan `migrate:fresh`, `migrate:refresh`, `db:wipe` atau `db:seed` di server yang sudah berisi data.
 - Jangan edit file kode langsung di server; `deploy.sh` mengembalikan kode ke versi GitHub.
 - Jangan commit `.env` atau data Excel asli ke GitHub (sudah dicegah oleh `.gitignore`).
+
+## E. Kosongkan data import untuk uji ulang
+
+Untuk menguji dari nol (import Excel harian lalu cocokkan grafik), data hasil import bisa dikosongkan
+tanpa menyentuh akun:
+
+```bash
+php artisan produksi:reset            # tanya konfirmasi, backup otomatis ke storage/backups/
+php artisan produksi:reset --forms    # sekalian hapus Form Produksi, Form Evaluasi & fotonya
+```
+
+| Dihapus | Tetap |
+| --- | --- |
+| Hasil produksi, downtime, reject, ringkasan dashboard | Akun pengguna & karyawan |
+| Order, customer, material, data SAP | Master mesin & area |
+| Riwayat import + file Excel yang pernah diupload | Daftar alasan downtime & jenis reject |
+| Std output otomatis | Pilihan form karu, std output manual |
+| (dengan `--forms`) Form Produksi, Form Evaluasi, foto | Log aktivitas (reset ikut tercatat) |
+
+Backup memakai `mysqldump`. Bila tidak ada di PATH (mis. Laragon), isi di `.env`:
+`MYSQLDUMP_PATH="C:\laragon\bin\mysql\mysql-8.4.3-winx64\bin\mysqldump.exe"`.
+Setelah reset, import ulang dari menu **Import data** — sistem menghitung ulang semua grafik dari file itu.
+
+Tanpa SSH, Admin Master bisa memakai tombol **Kosongkan data produksi** di menu **Import data** (isi sama dengan perintah di atas tanpa `--forms`;
+Form Produksi & Form Evaluasi tetap). Backup otomatis dari tombol ini butuh `proc_open` aktif dan `mysqldump` tersedia
+(di aaPanel biasanya `/www/server/mysql/bin/mysqldump`; isi `MYSQLDUMP_PATH` bila tidak ada di PATH). Bila backup gagal, tombol menolak
+dengan pesan, kecuali dicentang **Lanjut tanpa backup** — sebaiknya export dulu dari phpMyAdmin.

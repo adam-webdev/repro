@@ -27,10 +27,12 @@
                         <th rowspan="2" class="sheet-sticky">Jam cek</th>
                         <th rowspan="2">Mesin</th>
                         <th rowspan="2" class="min-w-[170px]">Customer &amp; dimensi</th>
+                        <th rowspan="2">Start jam<br><span class="font-normal">planning</span></th>
                         <th colspan="{{ count($measures) }}" class="sheet-group">Pengecekan aktual (mm)</th>
                         <th rowspan="2" class="min-w-[140px]">Jig</th>
                         <th rowspan="2" class="min-w-[140px]">Visual</th>
                         <th rowspan="2">Actual cutting<br><span class="font-normal">(pcs)</span></th>
+                        <th rowspan="2">Qty planning<br><span class="font-normal">(pcs)</span></th>
                         <th rowspan="2" class="min-w-[200px]">Kontrol kepatuhan</th>
                         <th rowspan="2" class="min-w-[220px]">Problem / keterangan</th>
                         <th rowspan="2" class="min-w-[130px]">Evidence foto</th>
@@ -53,6 +55,7 @@
                                 <div class="sheet-pre"><span>Cust</span>{{ $c->customer?->name ?? '–' }}</div>
                                 <div class="sheet-pre mt-1"><span>Size</span>{{ $c->dimension ?: '–' }}</div>
                             </td>
+                            <td class="tabular-nums">{{ $c->planned_start ? substr($c->planned_start, 0, 5) : '–' }}</td>
                             @foreach ($measures as [$k, $l])
                                 <td class="text-right tabular-nums">{{ $n($c->{$k}) }}</td>
                             @endforeach
@@ -60,7 +63,8 @@
                                 <td>@include('forms.evaluation._ticks_read', ['g' => $g])</td>
                             @endforeach
                             <td class="text-right tabular-nums">{{ $c->actual_cutting !== null ? number_format($c->actual_cutting, 0, ',', '.') : '–' }}</td>
-                            <td>@include('forms.evaluation._ticks_read', ['g' => 'compliance'])</td>
+                            <td class="text-right tabular-nums">{{ $c->planned_qty !== null ? number_format($c->planned_qty, 0, ',', '.') : '–' }}</td>
+                            <td>@include('forms.evaluation._ticks_read_multi')</td>
                             <td class="whitespace-pre-line">{{ $c->problem ?: '–' }}</td>
                             <td>@include('forms._gallery', ['photos' => $c->attachments])</td>
                         </tr>
@@ -71,7 +75,9 @@
     </div>
 
     <div class="max-w-4xl space-y-4">
-        @include('forms._history')
+        @if (auth()->user()->role !== 'karu')
+            @include('forms._history')
+        @endif
         <a href="{{ route('forms.evaluation.index') }}" class="btn"><x-icon name="arrow-left" :size="16" />Kembali</a>
     </div>
 </div>

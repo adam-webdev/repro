@@ -35,9 +35,21 @@ class EvaluationCheck extends Model
         return $this->belongsTo(FormOption::class, 'visual_option_id');
     }
 
-    public function compliance()
+    /** Kontrol kepatuhan: boleh lebih dari satu centang. */
+    public function compliances()
     {
-        return $this->belongsTo(FormOption::class, 'compliance_option_id');
+        return $this->belongsToMany(FormOption::class, 'evaluation_check_compliances', 'evaluation_check_id', 'form_option_id')->orderBy('sort');
+    }
+
+    /** Teks kepatuhan untuk tampilan / log / export, mis. "Penggunaan APD, 5R, Lainnya: ...". */
+    public function complianceText(): ?string
+    {
+        $labels = $this->compliances->pluck('label');
+        if ($this->compliance_other) {
+            $labels->push('Lainnya: '.$this->compliance_other);
+        }
+
+        return $labels->isNotEmpty() ? $labels->implode(', ') : null;
     }
 
     public function attachments()

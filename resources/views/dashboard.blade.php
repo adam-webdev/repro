@@ -2,6 +2,7 @@
 <div x-data="dashboard(@js([
         'filters' => $filters,
         'endpoint' => route('dashboard.data'),
+        'detailEndpoint' => route('dashboard.downtime-detail'),
         'canOpenForms' => auth()->user()->hasRole('karu', 'produksi'),
         'machines' => $machines,
         'minDate' => $range->min ?? null,
@@ -53,20 +54,87 @@
     {{-- ===================== DOWNTIME ===================== --}}
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <div class="card card-pad xl:col-span-2">
-            <div class="card-title">Tren downtime per kategori</div>
-            <div class="card-sub">Jam downtime per <span x-text="periodLabel()"></span></div>
-            <div id="ch-downtime-trend" class="mt-2 min-h-[300px]"></div>
+            <div class="card-title">Tren Set Up &amp; Downtime</div>
+            <div class="card-sub">Jam downtime per <span x-text="periodLabel()"></span> · <b>klik batang</b> untuk lihat penyebabnya</div>
+            <div id="ch-downtime-trend" class="mt-2 min-h-[300px] cursor-pointer"></div>
         </div>
         <div class="card card-pad">
-            <div class="card-title">Komposisi downtime</div>
-            <div class="card-sub">Total jam per kategori</div>
-            <div id="ch-downtime-cat" class="mt-2 min-h-[300px]"></div>
+            <div class="card-title">Komposisi Set Up &amp; Downtime</div>
+            <div class="card-sub">Total jam sesuai kelompok kolom di sheet DT · <b>klik</b> untuk lihat penyebabnya</div>
+            <div id="ch-downtime-cat" class="mt-2 min-h-[300px] cursor-pointer"></div>
+        </div>
+    </div>
+
+    {{-- Rincian penyebab saat grafik Set Up / Downtime diklik --}}
+    <div id="dt-detail" class="card" x-show="dt.open" x-cloak>
+        <div class="card-pad !pb-3 flex flex-wrap items-start gap-3 border-b" style="border-color:var(--border)">
+            <span class="w-3 h-3 rounded-full mt-1.5 shrink-0" :style="'background:' + dt.color"></span>
+            <div class="min-w-0 flex-1">
+                <div class="card-title" x-text="'Rincian ' + (dt.data?.category || dt.name) + ' · ' + dtRange()"></div>
+                <div class="card-sub" x-show="dt.data" x-text="'Total ' + num(dt.data?.total_hours, 1) + ' jam · ' + (dt.data?.reasons.length || 0) + ' penyebab (kolom sheet DT)'"></div>
+            </div>
+            <div class="seg">
+                <template x-for="c in [{ key: 'setup', name: 'Set Up' }, { key: 'downtime', name: 'Downtime' }]" :key="c.key">
+                    <button type="button" :class="dt.key === c.key && 'on'" @click="openDowntime(c.key, dt.bucket)" x-text="c.name"></button>
+                </template>
+            </div>
+            <button type="button" class="btn !h-8" x-show="dt.bucket" @click="openDowntime(dt.key, null)">Seluruh periode</button>
+            <button type="button" class="icon-btn" @click="dt.open = false" aria-label="Tutup rincian"><x-icon name="x" :size="16" /></button>
+        </div>
+        <div class="card-pad">
+            <div x-show="dt.loading" class="text-[13px]" style="color:var(--muted)">Memuat rincian…</div>
+            <div x-show="!dt.loading && dt.data && !dt.data.reasons.length" class="text-[13px]" style="color:var(--muted)">Tidak ada catatan untuk periode ini.</div>
+            <div class="grid grid-cols-1 xl:grid-cols-3 gap-5" x-show="!dt.loading && dt.data?.reasons.length">
+                <div class="xl:col-span-2">
+                    <div class="label">Penyebab (keterangan kolom Excel)</div>
+                    <div class="space-y-2 mt-1">
+                        <template x-for="r in dt.data?.reasons || []" :key="r.name">
+                            <div>
+                                <div class="flex items-baseline justify-between gap-3 text-[13px]">
+                                    <span class="font-medium min-w-0 truncate" x-text="r.name" :title="r.name"></span>
+                                    <span class="shrink-0 tabular-nums" style="color:var(--ink-2)">
+                                        <b x-text="num(r.hours, 1) + ' j'"></b> · <span x-text="num(r.share, 1) + '%'"></span>
+                                        <span style="color:var(--muted)" x-text="' · ' + r.occurrences + '× · ' + r.machines + ' mesin'"></span>
+                                    </span>
+                                </div>
+                                <div class="h-1.5 rounded-full mt-1" style="background:var(--surface-2)">
+                                    <div class="h-1.5 rounded-full" :style="`width:${Math.max(1, r.share)}%;background:${dt.color}`"></div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <div>
+                        <div class="label">Mesin terbanyak</div>
+                        <table class="tbl mt-1">
+                            <tbody>
+                                <template x-for="m in dt.data?.machines || []" :key="m.code">
+                                    <tr><td x-text="m.code"></td><td class="num" x-text="num(m.hours, 1) + ' j'"></td></tr>
+                                </template>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div>
+                        <div class="label">Catatan keterangan dari Excel</div>
+                        <div class="text-[12.5px]" style="color:var(--muted)" x-show="!dt.data?.notes.length">Tidak ada catatan teks di kolom keterangan sheet DT.</div>
+                        <div class="space-y-2 mt-1 max-h-[260px] overflow-y-auto pr-1">
+                            <template x-for="(n, ni) in dt.data?.notes || []" :key="ni">
+                                <div class="rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--surface-2)">
+                                    <div style="color:var(--muted)" x-text="fmtDate(n.date) + ' · S' + n.shift + ' · ' + n.machine + (n.order_no ? ' · PRO ' + n.order_no : '') + ' · ' + n.minutes + ' mnt'"></div>
+                                    <div class="mt-0.5" x-text="n.note"></div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <div class="card card-pad">
-            <div class="card-title">Pareto downtime · 10 alasan teratas</div>
+            <div class="card-title">Pareto downtime · 10 kolom DT teratas</div>
             <div class="card-sub">Jam downtime; arahkan kursor untuk melihat % kumulatif</div>
             <div id="ch-downtime-pareto" class="mt-2 min-h-[340px]"></div>
         </div>
@@ -102,60 +170,27 @@
         </div>
         <div class="card card-pad md:col-span-2 xl:col-span-1">
             <div class="card-title">Perbandingan area</div>
-            <div class="card-sub">Hasil baik per area & gedung</div>
+            <div class="card-sub">Hasil baik per area & gudang</div>
             <div id="ch-area" class="mt-2 min-h-[300px]"></div>
         </div>
     </div>
 
-    {{-- ===================== HEATMAP ===================== --}}
+    {{-- ===================== CUTTING TIME PER MESIN ===================== --}}
     <div class="card card-pad">
         <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
                 <div class="card-title">Cutting time % per mesin</div>
-                <div class="card-sub">Semakin gelap = mesin semakin lama benar-benar memotong (downtime sedikit). Abu-abu = tidak ada data.</div>
+                <div class="card-sub">Cutting time ÷ jam kerja per mesin · hijau ≥ 85%, kuning ≥ 75%, merah &lt; 75% · garis putus-putus = rata-rata</div>
             </div>
-            <div class="flex items-center gap-1.5 text-[11.5px]" style="color:var(--muted)">
-                <span>&lt;60%</span>
-                <template x-for="c in heatColors()"><span class="w-5 h-3 rounded-[3px]" :style="'background:' + c"></span></template>
-                <span>&gt;92%</span>
+            <div class="text-right" x-show="d">
+                <div class="text-[11.5px]" style="color:var(--muted)">Rata-rata</div>
+                <div class="text-[20px] font-semibold leading-tight" x-text="pct(d?.kpi.cutting_pct)"></div>
             </div>
         </div>
-        <div id="ch-heatmap" class="mt-2"></div>
+        <div id="ch-cutting-machine" class="mt-2 min-h-[340px]"></div>
     </div>
 
-    {{-- ===================== SAP vs LAPANGAN ===================== --}}
-    <div class="card">
-        <div class="card-pad !pb-2 flex flex-wrap items-start justify-between gap-2">
-            <div>
-                <div class="card-title">Yield SAP vs data lapangan (per order)</div>
-                <div class="card-sub">Order yang selesai dalam periode ini. Ditandai jika selisih &gt; <span x-text="d?.sap.threshold"></span> poin atau GR SAP &gt; 100%.</div>
-            </div>
-            <div class="flex gap-2 flex-wrap" x-show="d">
-                <span class="chip chip-muted" x-text="(d?.sap.compared || 0) + ' order dibandingkan'"></span>
-                <span class="chip" :class="d?.sap.flagged_count ? 'chip-warn' : 'chip-ok'" x-text="(d?.sap.flagged_count || 0) + ' order beda'"></span>
-            </div>
-        </div>
-        <div class="overflow-x-auto px-2 pb-2">
-            <table class="tbl">
-                <thead><tr><th>Order</th><th>Customer</th><th>Material</th><th class="num">GI SAP (kg)</th><th class="num">GR SAP</th>
-                    <th class="num">Yield lapangan</th><th class="num">Selisih</th></tr></thead>
-                <tbody>
-                <template x-for="r in (d?.sap.rows || [])" :key="r.order">
-                    <tr>
-                        <td><a class="underline underline-offset-2" :href="'{{ url('orders') }}/' + r.order" x-text="r.order"></a></td>
-                        <td x-text="r.customer || '-'"></td>
-                        <td class="font-mono text-[12px]" x-text="r.material || '-'"></td>
-                        <td class="num" x-text="num(r.gi_kg, 1)"></td>
-                        <td class="num" x-text="pct(r.sap)"></td>
-                        <td class="num" x-text="pct(r.field_nc)"></td>
-                        <td class="num"><span class="chip" :class="Math.abs(r.diff) > 5 || r.sap > 100 ? 'chip-crit' : 'chip-warn'" x-text="(r.diff > 0 ? '+' : '') + r.diff + ' poin'"></span></td>
-                    </tr>
-                </template>
-                <tr x-show="d && !d.sap.rows.length"><td colspan="7" class="text-center !py-8" style="color:var(--muted)">Tidak ada selisih yang perlu dicek (atau data SAP belum diimport untuk periode ini).</td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
+    {{-- Yield SAP vs data lapangan: disembunyikan sementara (data tetap dihitung di DashboardService::sapCompare). --}}
 
     {{-- ===================== PERFORMA MESIN + CUSTOMER ===================== --}}
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">

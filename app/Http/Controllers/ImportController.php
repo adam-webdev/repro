@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\ImportBatch;
 use App\Services\Import\ImportService;
+use App\Services\Import\ProductionDataReset;
 use App\Services\Import\TemplateBuilder;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -26,6 +28,7 @@ class ImportController extends Controller
             'batches' => ImportBatch::with('user')->latest()->paginate(15),
             'month' => $month,
             'counts' => $counts,
+            'resetCounts' => $request->user()->role === 'master' ? app(ProductionDataReset::class)->counts() : null,
         ]);
     }
 
@@ -92,6 +95,41 @@ class ImportController extends Controller
     }
 
     /** Hapus seluruh data satu tanggal + shift (soft delete, wajib alasan, tercatat di log). */
+    /** Admin Master: kosongkan seluruh data hasil import Excel (akun, master data & form karu tetap). */
+    public function reset(Request $request, ProductionDataReset $reset): RedirectResponse
+    {
+        $request->validate([
+            'confirmation' => 'required|in:KOSONGKAN',
+            'reason' => 'required|string|min:5|max:200',
+            'skip_backup' => 'nullable|boolean',
+        ], [
+            'confirmation.required' => 'Ketik KOSONGKAN untuk konfirmasi.',
+            'confirmation.in' => 'Ketik KOSONGKAN (huruf besar) untuk konfirmasi.',
+            'reason.required' => 'Alasan wajib diisi.',
+            'reason.min' => 'Alasan minimal 5 karakter.',
+        ]);
+
+        @set_time_limit(0); // backup + hapus puluhan ribu baris bisa lebih dari batas default 30 detik
+        $backup = null;
+        if (! $request->boolean('skip_backup')) {
+            try {
+                $backup = $reset->backup();
+            } catch (RuntimeException $e) {
+                return back()->withInput()->with('error', $e->getMessage().' Centang "Lanjut tanpa backup" bila tetap ingin mengosongkan.');
+            }
+        }
+
+        try {
+            $counts = $reset->reset($request->user(), trim($request->input('reason')));
+        } catch (RuntimeException $e) {
+            return back()->withInput()->with('error', $e->getMessage());
+        }
+
+        return redirect()->route('imports.index')->with('success', number_format($counts['production_reports'], 0, ',', '.')
+            .' baris data produksi dan '.$counts['import_batches'].' riwayat import dihapus. Akun, master data & form karu tetap.'
+            .($backup ? ' Backup: storage/backups/'.basename($backup) : ''));
+    }
+
     public function destroyGroup(Request $request, ImportService $service)
     {
         $data = $request->validate([

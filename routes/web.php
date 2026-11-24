@@ -24,6 +24,7 @@ Route::middleware(['auth', 'role'])->group(function () {
     // Semua role
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
+    Route::get('/dashboard/downtime-detail', [DashboardController::class, 'downtimeDetail'])->name('dashboard.downtime-detail');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::put('/profile/password', [ProfileController::class, 'password'])->name('profile.password');
@@ -89,5 +90,7 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->withTrashed();
 
         Route::get('/activity', [ActivityLogController::class, 'index'])->name('activity.index');
+
+        Route::post('/imports/reset', [ImportController::class, 'reset'])->name('imports.reset');
     });
 });

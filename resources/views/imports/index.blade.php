@@ -52,6 +52,61 @@
                 <li>Mengganti data yang lebih lama dari {{ config('production.lock_days') }} hari hanya bisa oleh Admin Master.</li>
             </ol>
         </div>
+
+        @if ($resetCounts !== null)
+            {{-- Admin Master: kosongkan semua data hasil import (untuk uji ulang import harian / mingguan) --}}
+            <div class="card card-pad" x-data="{ open: {{ $errors->hasAny(['confirmation', 'reason']) || old('confirmation') ? 'true' : 'false' }}, busy: false }"
+                 style="border-color:var(--bad)">
+                <div class="flex items-start justify-between gap-3">
+                    <div>
+                        <div class="card-title" style="color:var(--bad)">Kosongkan data produksi</div>
+                        <div class="card-sub">Untuk testing: hapus semua data hasil import Excel lalu import ulang dari awal.</div>
+                    </div>
+                    <button type="button" class="btn btn-danger !h-9 shrink-0" @click="open = !open" x-show="!open">
+                        <x-icon name="trash-2" :size="15" />Kosongkan
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-2 gap-2 mt-3 text-[12.5px]">
+                    <div class="rounded-lg px-3 py-2" style="background:var(--hover)">
+                        <div style="color:var(--muted)">Laporan produksi</div>
+                        <div class="text-[15px] font-semibold">{{ number_format($resetCounts['production_reports'], 0, ',', '.') }} baris</div>
+                    </div>
+                    <div class="rounded-lg px-3 py-2" style="background:var(--hover)">
+                        <div style="color:var(--muted)">Riwayat import</div>
+                        <div class="text-[15px] font-semibold">{{ number_format($resetCounts['import_batches'], 0, ',', '.') }} file</div>
+                    </div>
+                </div>
+
+                <form x-show="open" x-cloak method="POST" action="{{ route('imports.reset') }}" class="mt-3 space-y-3 text-[13px]"
+                      @submit="if (busy) { $event.preventDefault(); return; } busy = true">
+                    @csrf
+                    <div class="leading-relaxed" style="color:var(--ink-2)">
+                        <div><b>Dihapus:</b> hasil produksi, downtime, reject, ringkasan dashboard, order, customer, material, data SAP, riwayat & file import, std output otomatis.</div>
+                        <div class="mt-1"><b>Tetap aman:</b> akun login, karyawan, mesin & area, alasan downtime, jenis reject, pilihan form, std output manual, Form Produksi & Form Evaluasi karu, log aktivitas.</div>
+                    </div>
+                    <label class="block"><span class="label">Alasan (tercatat di log aktivitas)</span>
+                        <input name="reason" value="{{ old('reason') }}" required minlength="5" maxlength="200" class="input w-full" placeholder="mis. kosongkan untuk uji import mingguan">
+                        @error('reason')<span class="field-err">{{ $message }}</span>@enderror
+                    </label>
+                    <label class="block"><span class="label">Ketik <b>KOSONGKAN</b> untuk konfirmasi</span>
+                        <input name="confirmation" value="{{ old('confirmation') }}" required autocomplete="off" class="input w-full font-mono" placeholder="KOSONGKAN">
+                        @error('confirmation')<span class="field-err">{{ $message }}</span>@enderror
+                    </label>
+                    <label class="flex items-start gap-2 select-none" style="color:var(--ink-2)">
+                        <input type="checkbox" name="skip_backup" value="1" class="w-4 h-4 mt-0.5" @checked(old('skip_backup'))>
+                        <span>Lanjut tanpa backup <span style="color:var(--muted)">(secara bawaan database dibackup dulu ke storage/backups)</span></span>
+                    </label>
+                    <div class="flex gap-2">
+                        <button class="btn btn-danger flex-1 !h-10" :disabled="busy">
+                            <span x-show="!busy">Hapus {{ number_format($resetCounts['production_reports'], 0, ',', '.') }} baris data produksi</span>
+                            <span x-show="busy" x-cloak>Menghapus… mohon tunggu</span>
+                        </button>
+                        <button type="button" class="btn !h-10" @click="open = false" :disabled="busy">Batal</button>
+                    </div>
+                </form>
+            </div>
+        @endif
     </div>
 
     {{-- Kalender kelengkapan --}}

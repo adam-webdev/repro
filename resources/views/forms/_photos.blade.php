@@ -11,10 +11,15 @@
                         style="background:rgba(0,0,0,.6);color:#fff" aria-label="Hapus foto"><x-icon name="x" :size="13" :stroke="2.25" /></button>
             </div>
         </template>
+        {{-- capture="environment": di HP langsung membuka kamera belakang; di komputer sama seperti pilih file --}}
         <label class="thumb grid place-items-center cursor-pointer text-center" style="border-style:dashed">
-            <span class="grid justify-items-center gap-1 text-[11.5px]" style="color:var(--ink-2)"><x-icon name="image-plus" :size="20" />Foto</span>
+            <span class="grid justify-items-center gap-1 text-[11.5px]" style="color:var(--ink-2)"><x-icon name="camera" :size="20" />Kamera</span>
+            <input type="file" accept="image/*" capture="environment" class="hidden" @change="addPhotos({{ $row }}, $event.target.files); $event.target.value = ''">
+        </label>
+        <label class="thumb grid place-items-center cursor-pointer text-center" style="border-style:dashed">
+            <span class="grid justify-items-center gap-1 text-[11.5px]" style="color:var(--ink-2)"><x-icon name="image-plus" :size="20" />Galeri</span>
             <input type="file" accept="image/*" multiple class="hidden" @change="addPhotos({{ $row }}, $event.target.files); $event.target.value = ''">
         </label>
     </div>
-    <p class="text-[11.5px] mt-1" style="color:var(--muted)">Ambil dari kamera atau galeri. Bisa lebih dari satu foto, otomatis diperkecil sebelum diunggah.</p>
+    <p class="text-[11.5px] mt-1" style="color:var(--muted)">Kamera = langsung foto, Galeri = pilih foto yang sudah ada (bisa beberapa). Foto otomatis diperkecil sebelum diunggah.</p>
 </div>

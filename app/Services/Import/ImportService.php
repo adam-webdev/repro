@@ -545,7 +545,7 @@ class ImportService
         if (preg_match('/NCR[\s\-.]*(\d+)/', $note, $m)) {
             $ncr = 'NCR-'.$m[1];
         }
-        $cause = trim(preg_replace('/NCR[\s\-.]*\d*/', '', $note), " -.,/");
+        $cause = trim(preg_replace('/NCR[\s\-.]*\d*/', '', $note), ' -.,/');
         $cause = preg_replace('/\s+/', ' ', $cause);
 
         return [$cause !== '' ? mb_substr($cause, 0, 80) : 'TANPA KETERANGAN', $ncr];

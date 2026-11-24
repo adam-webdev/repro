@@ -20,7 +20,7 @@ class ProductionFormController extends Controller
         $from = $request->input('from') ?: now()->subDays(6)->toDateString();
 
         $forms = ProductionForm::query()
-            ->with(['user.employee', 'area', 'updater', 'items.machine:id,code', 'items.problems', 'items' => fn ($q) => $q->withCount('attachments')])
+            ->with(['user.employee', 'area', 'creator', 'updater', 'items.machine:id,code', 'items.problems', 'items' => fn ($q) => $q->withCount('attachments')])
             ->whereBetween('form_date', [$from, $to])
             ->when($user->role === 'karu', fn ($q) => $q->where('user_id', $user->id))
             ->when($request->filled('shift'), fn ($q) => $q->where('shift', $request->integer('shift')))
@@ -75,7 +75,7 @@ class ProductionFormController extends Controller
                 'shift' => $form->shift,
                 'area_id' => $form->area_id,
                 'items' => $form->items->map(fn ($it) => [
-                    'machine_type' => $it->machine_type, 'machine_id' => $it->machine_id, 'dimension' => $it->dimension,
+                    'machine_type' => $it->machine_type, 'machine_id' => $it->machine_id, 'order_no' => $it->order_no, 'dimension' => $it->dimension,
                     'working_minutes' => $it->working_minutes, 'cutting_minutes' => $it->cutting_minutes,
                     'std_output' => $it->std_output !== null ? (float) $it->std_output : null,
                     'act_output' => $it->act_output !== null ? (float) $it->act_output : null,

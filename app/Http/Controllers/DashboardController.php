@@ -5,8 +5,11 @@ namespace App\Http\Controllers;
 use App\Models\Area;
 use App\Models\Machine;
 use App\Services\DashboardService;
+use App\Services\MonitoringDailyService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Validation\Rule;
 
 class DashboardController extends Controller
 {
@@ -24,36 +27,29 @@ class DashboardController extends Controller
         return response()->json($service->data($service->filters($request->all())));
     }
 
-    /** Monitoring Karu: isian Form Produksi & Form Evaluasi, dibandingkan dengan data import admin. */
-    public function karu(Request $request, DashboardService $service)
+    /** Rincian Set Up / Downtime saat batang atau donat diklik. */
+    public function downtimeDetail(Request $request, DashboardService $service): JsonResponse
     {
-        return view('forms.monitoring', $this->filterOptions() + [
-            'filters' => $service->filters($this->karuInput($request)),
-            'range' => $this->karuRange(),
+        $request->validate([
+            'category' => ['required', Rule::in(array_keys(config('production.downtime_categories')))],
+            'bucket' => 'nullable|date',
+        ]);
+
+        return response()->json($service->downtimeDetail($service->filters($request->all()), $request->string('category'), $request->input('bucket')));
+    }
+
+    /** Monitoring Karu (layout Monitoring Daily): murni dari Form Produksi karu. */
+    public function karu(Request $request, MonitoringDailyService $service)
+    {
+        return view('forms.monitoring', [
+            'filters' => $service->filters($request->all()),
+            'groups' => $service->groups(),
         ]);
     }
 
-    public function karuData(Request $request, DashboardService $service)
+    public function karuData(Request $request, MonitoringDailyService $service)
     {
-        return response()->json($service->karuData($service->filters($this->karuInput($request))));
-    }
-
-    /** Form karu bisa lebih baru dari data import terakhir, jadi bawaannya sampai hari ini. */
-    private function karuInput(Request $request): array
-    {
-        $in = $request->all();
-        $in['to'] = $in['to'] ?? now()->toDateString();
-
-        return $in;
-    }
-
-    private function karuRange(): object
-    {
-        $p = DB::table('production_forms')->whereNull('deleted_at')->selectRaw('MIN(form_date) min, MAX(form_date) max')->first();
-        $e = DB::table('evaluation_forms')->whereNull('deleted_at')->selectRaw('MIN(form_date) min, MAX(form_date) max')->first();
-        $min = collect([$p->min, $e->min])->filter()->min();
-
-        return (object) ['min' => $min, 'max' => now()->toDateString()];
+        return response()->json($service->data($service->filters($request->all())));
     }
 
     private function filterOptions(): array

@@ -58,7 +58,7 @@
                 <input type="hidden" name="date" value="{{ $from }}">
                 <input type="hidden" name="shift" value="{{ request('shift') }}">
                 <label class="block flex-1 min-w-[240px]"><span class="label">Alasan penghapusan (wajib, tercatat di log)</span>
-                    <input name="reason" required minlength="5" maxlength="200" class="input w-full" placeholder="mis. salah tanggal, seharusnya 15/11"></label>
+                    <input name="reason" value="{{ old('reason') }}" required minlength="5" maxlength="200" class="input w-full" placeholder="mis. salah tanggal, seharusnya 15/11"></label>
                 <button class="btn btn-danger">Hapus {{ number_format($totals->c, 0, ',', '.') }} baris</button>
             </form>
         </div>
@@ -69,7 +69,7 @@
             <table class="tbl">
                 <thead><tr>
                     <th>Tanggal</th><th>Shift</th><th>Mesin</th><th>Order</th><th>Customer</th><th>Material / size</th><th>Jam</th>
-                    <th class="num">Baik</th><th class="num">NC</th><th class="num">Reject</th><th class="num">Jam kerja</th><th class="num">Downtime</th><th class="num">Cutting</th><th></th>
+                    <th class="num">Baik</th><th class="num">NC</th><th class="num">Reject</th><th class="num">Jam kerja</th><th class="num">Downtime</th><th class="num">Cutting time</th><th class="num">Cutting %</th><th></th>
                 </tr></thead>
                 <tbody>
                 @forelse ($reports as $r)
@@ -90,6 +90,7 @@
                         <td class="num">{{ $r->reject_qty ? number_format($r->reject_qty, 0, ',', '.') : '–' }}</td>
                         <td class="num">{{ $r->working_minutes }}′</td>
                         <td class="num">{{ $r->downtime_minutes }}′</td>
+                        <td class="num">{{ $r->cutting_minutes !== null ? $r->cutting_minutes.'′' : '–' }}</td>
                         <td class="num">
                             @if ($ct !== null)
                                 <span class="chip {{ $ct >= 85 ? 'chip-ok' : ($ct >= 75 ? 'chip-warn' : 'chip-crit') }}">{{ number_format($ct, 0) }}%</span>
@@ -98,7 +99,7 @@
                         <td class="num"><button type="button" class="btn !h-7 !px-2.5 !text-[12px]" @click="show('{{ route('reports.show', $r) }}')">Rincian</button></td>
                     </tr>
                 @empty
-                    <tr><td colspan="14" class="text-center !py-10" style="color:var(--muted)">Tidak ada data untuk filter ini.</td></tr>
+                    <tr><td colspan="15" class="text-center !py-10" style="color:var(--muted)">Tidak ada data untuk filter ini.</td></tr>
                 @endforelse
                 </tbody>
             </table>

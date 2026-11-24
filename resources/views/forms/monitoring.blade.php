@@ -1,92 +1,130 @@
 <x-layouts.app title="Monitoring Karu">
-<div x-data="dashboard(@js([
-        'mode' => 'karu',
+{{-- Monitoring Daily: dari Form Produksi & Form Evaluasi (planning) karu — App\Services\MonitoringDailyService. --}}
+<div x-data="monitoringDaily(@js([
         'filters' => $filters,
         'endpoint' => route('forms.monitoring.data'),
-        'canOpenForms' => true,
-        'machines' => $machines,
-        'minDate' => $range->min ?? null,
-        'maxDate' => $range->max ?? null,
-    ]))" x-init="init()" class="space-y-4">
+        'today' => now()->toDateString(),
+    ]))" x-init="init()" class="space-y-3">
 
-    <div>
-        <h1 class="text-[18px] font-semibold tracking-tight">Monitoring karu</h1>
-        <p class="text-[13px] mt-0.5" style="color:var(--muted)">Isian Form Produksi & Form Evaluasi dari Kepala Regu, dicocokkan dengan data import admin pada tanggal, shift dan mesin yang sama.</p>
+    {{-- ===================== FILTER ===================== --}}
+    <div class="card card-pad !py-3 flex flex-wrap items-end gap-x-3 gap-y-2">
+        <div>
+            <label class="label">Grup mesin</label>
+            <select class="input w-[150px]" x-model="f.group" @change="load()">
+                <option value="">Semua mesin</option>
+                @foreach ($groups as $g)<option value="{{ $g }}">{{ $g }}</option>@endforeach
+            </select>
+        </div>
+        <div>
+            <label class="label">Tanggal</label>
+            <input type="date" class="input w-[150px]" x-model="f.date" @change="load()">
+        </div>
+        <div>
+            <label class="label">Shift</label>
+            <select class="input w-[110px]" x-model="f.shift" @change="load()">
+                <option value="">Semua</option>
+                @foreach (config('production.karu_shifts') as $s => $time)<option value="{{ $s }}">Shift {{ $s }} ({{ $time['start'] }}–{{ $time['end'] }})</option>@endforeach
+            </select>
+        </div>
+        <button class="btn" @click="reset()" x-show="isFiltered()" x-cloak>Reset</button>
+        <div class="ml-auto text-[12px]" style="color:var(--muted)">
+            <span x-show="loading">Memuat…</span>
+            <span x-show="!loading">Sumber: Form Produksi & Form Evaluasi karu</span>
+        </div>
     </div>
 
-    @include('dashboard._filters', ['karuMode' => true])
-
-    <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-        <template x-for="k in karuKpis()" :key="k.label">
-            <div class="card card-pad !py-3.5">
-                <div class="text-[12.5px]" style="color:var(--muted)" x-text="k.label"></div>
-                <div class="kpi-value mt-1" :style="k.alert && 'color:var(--bad)'" x-text="k.value"></div>
-                <div class="text-[12px] mt-0.5" style="color:var(--muted)" x-text="k.sub"></div>
+    <div class="md-board space-y-3">
+        {{-- ===================== BARIS 1 ===================== --}}
+        <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-12 gap-3">
+            <div class="md-tile 2xl:col-span-4">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <span class="md-pill gold" x-text="d ? d.group_label.toUpperCase() : '—'"></span>
+                    <span class="md-pill date"><x-icon name="calendar-days" :size="15" /><span x-text="shortDate(f.date)"></span></span>
+                </div>
+                <div class="grid grid-cols-3 gap-2 mt-3">
+                    <template x-for="k in kpis()" :key="k.key">
+                        <div>
+                            <div class="md-kpi"><div class="md-kpi-val" x-text="d ? k.value : '—'"></div></div>
+                            <div class="flex items-center justify-between gap-1 mt-1 px-0.5">
+                                <span class="md-kpi-label" x-text="k.label"></span>
+                                <span class="text-[11px] font-bold text-right leading-tight" x-show="d">
+                                    <template x-if="k.change !== null">
+                                        <span :class="k.change >= 0 ? 'md-up' : 'md-down'" x-text="(k.change >= 0 ? '▲' : '▼') + num(Math.abs(k.change), 1) + '%'"></span>
+                                    </template>
+                                    <span class="block text-[9.5px] font-semibold" style="color:var(--md-muted)" x-text="k.sub"></span>
+                                </span>
+                            </div>
+                        </div>
+                    </template>
+                </div>
             </div>
-        </template>
-    </div>
 
-    <div class="card">
-        <div class="card-pad !pb-2 flex flex-wrap items-start gap-3">
-            <div class="flex-1 min-w-[240px]">
-                <div class="card-title">Laporan karu vs data admin</div>
-                <div class="card-sub">Mesin + tanggal + shift yang sama. Ditandai jika downtime (selisih &gt; 15 mnt & 20%), cutting time (&gt; 15 mnt & 10%), atau hasil OK (&gt; 10%) berbeda.</div>
+            <div class="md-tile 2xl:col-span-4">
+                <div class="flex items-start justify-between gap-2">
+                    <span class="md-pill" x-text="'Produksi ' + groupShort() + ' ' + (d?.month.label || '')"></span>
+                    <div class="md-big" x-text="d ? num(d.month.total_pcs) : '—'"></div>
+                </div>
+                <div id="ch-md-month" class="mt-1 min-h-[200px]"></div>
             </div>
-            <span class="chip" :class="d?.karu.crosscheck.flagged_count ? 'chip-crit' : 'chip-ok'"
-                  x-text="d ? `${d.karu.crosscheck.flagged_count} dari ${d.karu.crosscheck.compared} perlu dicek` : ''"></span>
-        </div>
-        <div class="overflow-x-auto px-2 pb-2 max-h-[420px]">
-            <table class="tbl">
-                <thead><tr><th>Tanggal</th><th>Mesin</th><th>Karu</th><th class="num">DT karu</th><th class="num">DT admin</th><th class="num">Cutting karu</th><th class="num">Cutting admin</th><th class="num">OK karu</th><th class="num">OK admin</th><th>Temuan</th></tr></thead>
-                <tbody>
-                <template x-for="r in (d?.karu.crosscheck.rows || [])" :key="r.form_id + r.machine + r.date">
-                    <tr :class="cfg.canOpenForms && 'cursor-pointer'" @click="cfg.canOpenForms && (window.location = r.url)">
-                        <td x-text="fmtDate(r.date) + ' · S' + r.shift"></td>
-                        <td class="font-medium" x-text="r.machine"></td>
-                        <td x-text="r.karu"></td>
-                        <td class="num" x-text="num(r.karu_dt)"></td>
-                        <td class="num" x-text="num(r.admin_dt)"></td>
-                        <td class="num" x-text="num(r.karu_cut)"></td>
-                        <td class="num" x-text="num(r.admin_cut)"></td>
-                        <td class="num" x-text="num(r.karu_ok)"></td>
-                        <td class="num" x-text="num(r.admin_ok)"></td>
-                        <td><div class="flex flex-wrap gap-1"><template x-for="x in r.issues"><span class="chip chip-crit" x-text="x"></span></template></div></td>
-                    </tr>
-                </template>
-                <tr x-show="d && !d.karu.crosscheck.rows.length"><td colspan="10" class="text-center !py-8" style="color:var(--muted)"
-                    x-text="d?.karu.crosscheck.compared ? 'Semua laporan karu cocok dengan data admin.' : 'Belum ada Form Produksi pada periode ini.'"></td></tr>
-                </tbody>
-            </table>
-        </div>
-    </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <div class="card card-pad xl:col-span-2">
-            <div class="card-title">Problem terbanyak menurut karu</div>
-            <div class="card-sub">Total menit Set Up & DT dari Form Produksi</div>
-            <div id="ch-karu-problems" class="mt-2 min-h-[300px]"></div>
+            <div class="md-tile 2xl:col-span-4">
+                <span class="md-pill" x-text="'Set up & downtime ' + groupShort() + ' ' + (d?.month.label || '')"></span>
+                <div id="ch-md-loss" class="mt-1 min-h-[200px]"></div>
+            </div>
         </div>
-        <div class="card card-pad">
-            <div class="card-title">Hasil visual</div>
-            <div class="card-sub">Dari pengecekan Form Evaluasi</div>
-            <div id="ch-karu-visual" class="mt-2 min-h-[300px]"></div>
+
+        {{-- ===================== BARIS 2 ===================== --}}
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-3">
+            <div class="md-tile xl:col-span-5">
+                <div class="flex items-start justify-between gap-2">
+                    <span class="md-pill">Total produksi pcs</span>
+                    <div class="md-big" style="color:var(--md-teal)" x-text="d ? num(d.kpi.total_pc) : '—'"></div>
+                </div>
+                <div id="ch-md-production" class="mt-1 min-h-[300px]"></div>
+            </div>
+            <div class="md-tile xl:col-span-4">
+                <span class="md-pill teal">Std / Act &amp; efficiency</span>
+                <div id="ch-md-eff" class="mt-1 min-h-[300px]"></div>
+            </div>
+            <div class="md-tile xl:col-span-3">
+                <span class="md-pill pink">NG tertinggi</span>
+                <div id="ch-md-ng" class="mt-1 min-h-[300px]"></div>
+            </div>
         </div>
-    </div>
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <div class="card card-pad">
-            <div class="card-title">Kontrol kepatuhan</div>
-            <div class="card-sub">Jumlah temuan per poin</div>
-            <div id="ch-karu-compliance" class="mt-2 min-h-[260px]"></div>
-        </div>
-        <div class="card card-pad">
-            <div class="card-title">JIG</div>
-            <div class="card-sub">Jumlah pengecekan per JIG</div>
-            <div id="ch-karu-jig" class="mt-2 min-h-[260px]"></div>
-        </div>
-        <div class="card card-pad">
-            <div class="card-title">Aktivitas per karu</div>
-            <div class="card-sub">Mesin dilaporkan & pengecekan dilakukan</div>
-            <div id="ch-karu-activity" class="mt-2 min-h-[260px]"></div>
+
+        {{-- ===================== BARIS 3: tabel downtime per mesin ===================== --}}
+        <div class="flex flex-wrap gap-3 items-start">
+            <template x-for="m in (d?.machines || [])" :key="m.machine_id">
+                <div class="md-card">
+                    <table>
+                        <thead>
+                            <tr><th x-text="m.code"></th><th>MNT</th><th>FREQ</th><th>%</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr x-show="m.planned_qty || m.planned_start">
+                                <td colspan="4" class="md-plan !text-left !normal-case"
+                                    x-text="'Planning: ' + (m.planned_start ? 'start ' + m.planned_start : '') + (m.planned_qty ? ' · ' + num(m.planned_qty) + ' pcs' : '') + ' · aktual ' + num(m.pcs) + ' pcs'"></td>
+                            </tr>
+                            <tr class="md-cut">
+                                <td>Cutting time (Eff.)</td><td x-text="num(m.table.cutting.minutes)"></td><td></td><td x-text="m.table.cutting.pct + '%'"></td>
+                            </tr>
+                            <template x-for="r in m.table.downtime" :key="'dt' + r.name">
+                                <tr><td x-text="r.name"></td><td x-text="num(r.minutes)"></td><td x-text="num(r.freq)"></td><td x-text="r.pct + '%'"></td></tr>
+                            </template>
+                            <tr class="md-sub"><td colspan="4" class="!text-center">SET UP</td></tr>
+                            <template x-for="r in m.table.setup" :key="'su' + r.name">
+                                <tr><td x-text="r.name"></td><td x-text="num(r.minutes)"></td><td x-text="num(r.freq)"></td><td x-text="r.pct + '%'"></td></tr>
+                            </template>
+                            <tr class="md-total">
+                                <td class="!text-right">Total downtime</td><td x-text="num(m.table.total.minutes)"></td><td></td><td x-text="m.table.total.pct + '%'"></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </template>
+            <div class="md-tile w-full text-center text-[13px]" style="color:var(--md-muted)" x-show="d && !d.machines.length">
+                Belum ada Form Produksi / Form Evaluasi karu untuk tanggal & grup ini.
+            </div>
         </div>
     </div>
 </div>

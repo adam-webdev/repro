@@ -56,7 +56,7 @@ class EvaluationForm extends Model
 
     public function snapshot(): array
     {
-        $this->load(['area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliance', 'checks.attachments']);
+        $this->load(['area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments']);
         $out = [
             'Tanggal' => $this->form_date->format('d/m/Y'),
             'Shift' => $this->shift,
@@ -69,6 +69,7 @@ class EvaluationForm extends Model
                 $p.'mesin' => $c->machine?->code,
                 $p.'customer' => $c->customer?->name,
                 $p.'dimensi' => $c->dimension,
+                $p.'start planning' => $c->planned_start ? substr($c->planned_start, 0, 5) : null,
                 $p.'OD' => $c->od_mm !== null ? (float) $c->od_mm : null,
                 $p.'D1' => $c->d1 !== null ? (float) $c->d1 : null,
                 $p.'D2' => $c->d2 !== null ? (float) $c->d2 : null,
@@ -79,8 +80,9 @@ class EvaluationForm extends Model
                 $p.'panjang' => $c->length_mm !== null ? (float) $c->length_mm : null,
                 $p.'JIG' => FormOption::display($c->jig, $c->jig_other),
                 $p.'visual' => FormOption::display($c->visual, $c->visual_other),
-                $p.'kepatuhan' => FormOption::display($c->compliance, $c->compliance_other),
+                $p.'kepatuhan' => $c->complianceText(),
                 $p.'actual cutting' => $c->actual_cutting,
+                $p.'qty planning' => $c->planned_qty,
                 $p.'problem' => $c->problem,
                 $p.'foto' => $c->attachments->count(),
             ];

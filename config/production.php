@@ -10,6 +10,13 @@
 */
 
 return [
+    // Lokasi mysqldump untuk backup otomatis (php artisan produksi:reset). Kosong = cari di PATH.
+    'mysqldump_path' => env('MYSQLDUMP_PATH', 'mysqldump'),
+
+    // Monitoring Karu (Monitoring Daily): target bawaan jika kolom target di tabel mesin kosong.
+    'monitoring' => [
+        'target_efficiency' => (float) env('MONITORING_TARGET_EFFICIENCY', 85), // % Act/Std
+    ],
 
     // Data yang lebih lama dari N hari hanya boleh DIGANTI (import ulang) oleh Admin Master.
     'lock_days' => (int) env('PRODUCTION_LOCK_DAYS', 7),
@@ -27,22 +34,22 @@ return [
         'CUTC-503' => ['Area 02', 'Gd Eksisting'], 'CUTC-504' => ['Area 03', 'Gd Eksisting'],
         'CUTC-508' => ['Area 03', 'Gd Eksisting'], 'CUTC-511' => ['Area 03', 'Gd Eksisting'],
         'CUTC-513' => ['Area 02', 'Gd Eksisting'], 'CUTC-514' => ['Area 03', 'Gd Eksisting'],
-        'CUTC-516' => ['Area 04', 'Gd Eksisting'], 'CUTC-517' => ['Area 02', 'Gd Eksisting'],
-        'CUTC-518' => ['Area 03', 'Gd Eksisting'], 'CUTC-521' => ['Area 04', 'Gd Ekspansi'],
-        'CUTC-522' => ['Area 04', 'Gd Ekspansi'], 'CUTC-525' => ['Area 04', 'Gd Ekspansi'],
+        'CUTC-516' => ['Area 03', 'Gd Eksisting'], 'CUTC-517' => ['Area 02', 'Gd Eksisting'],
+        'CUTC-518' => ['Area 03', 'Gd Eksisting'], 'CUTC-521' => ['Area 03', 'Gd Ekspansi'],
+        'CUTC-522' => ['Area 03', 'Gd Ekspansi'], 'CUTC-525' => ['Area 03', 'Gd Ekspansi'],
         'CUTH-512' => ['Area 01', 'Gd Eksisting'], 'CUTL-501' => ['Area 01', 'Gd Eksisting'],
         'CUTL-502' => ['Area 01', 'Gd Eksisting'], 'CUTP-501' => ['Area 02', 'Gd Eksisting'],
         'CUTP-502' => ['Area 02', 'Gd Eksisting'], 'CUTP-503' => ['Area 01', 'Gd Eksisting'],
         'CUTP-504' => ['Area 03', 'Gd Eksisting'], 'CUTP-505' => ['Area 03', 'Gd Eksisting'],
-        'CUTP-506' => ['Area 04', 'Gd Ekspansi'], 'CUTP-507' => ['Area 04', 'Gd Ekspansi'],
-        'CUTP-508' => ['Area 02', 'Gd Eksisting'], 'CUTP-509' => ['Area 04', 'Gd Ekspansi'],
-        'CUTP-510' => ['Area 04', 'Gd Ekspansi'], 'CUTP-511' => ['Area 01', 'Gd Eksisting'],
-        'CUTP-512' => ['Area 04', 'Gd Ekspansi'], 'CUTS-501' => ['Area 01', 'Gd Eksisting'],
+        'CUTP-506' => ['Area 03', 'Gd Ekspansi'], 'CUTP-507' => ['Area 03', 'Gd Ekspansi'],
+        'CUTP-508' => ['Area 02', 'Gd Eksisting'], 'CUTP-509' => ['Area 03', 'Gd Ekspansi'],
+        'CUTP-510' => ['Area 03', 'Gd Ekspansi'], 'CUTP-511' => ['Area 01', 'Gd Eksisting'],
+        'CUTP-512' => ['Area 03', 'Gd Ekspansi'], 'CUTS-501' => ['Area 01', 'Gd Eksisting'],
         'DEB-502' => ['Area 03', 'Gd Eksisting'], 'DEB-505' => ['Area 02', 'Gd Eksisting'],
-        'DEB-510' => ['Area 04', 'Gd Ekspansi'], 'DEB-511' => ['Area 04', 'Gd Ekspansi'],
-        'EBR-507' => ['Area 04', 'Gd Ekspansi'], 'EBR-511' => ['Area 03', 'Gd Eksisting'],
-        'EBR-515' => ['Area 03', 'Gd Eksisting'], 'EXSW-501' => ['Area 04', 'Gd Ekspansi'],
-        'EXSW-502' => ['Area 04', 'Gd Ekspansi'], 'EXSW-503' => ['Area 04', 'Gd Ekspansi'],
+        'DEB-510' => ['Area 03', 'Gd Ekspansi'], 'DEB-511' => ['Area 03', 'Gd Ekspansi'],
+        'EBR-507' => ['Area 03', 'Gd Ekspansi'], 'EBR-511' => ['Area 03', 'Gd Eksisting'],
+        'EBR-515' => ['Area 03', 'Gd Eksisting'], 'EXSW-501' => ['Area 03', 'Gd Ekspansi'],
+        'EXSW-502' => ['Area 03', 'Gd Ekspansi'], 'EXSW-503' => ['Area 03', 'Gd Ekspansi'],
         // Ada di data tapi tidak ada di Sheet2 -> area belum diketahui
         'HZS-501' => [null, null],
     ],
@@ -81,83 +88,72 @@ return [
         'melipat' => 'Melipat',
     ],
 
-    // Kategori downtime (urutan = urutan warna di grafik)
+    // Kelompok downtime = judul kolom grup di sheet DT Excel: "Set Up" (kolom P–R) dan "Downtime" (kolom T dst.).
     'downtime_categories' => [
-        'menunggu' => 'Menunggu',
         'setup' => 'Set Up',
-        'setting' => 'Setting Proses',
-        'tooling' => 'Ganti Pahat & Gergaji',
-        'rutin' => 'Persiapan & Rutin',
-        'breakdown' => 'Kerusakan Mesin',
-        'preventive' => 'Preventive',
-        'lain' => 'Lain-lain',
+        'downtime' => 'Downtime',
     ],
 
-    // Kolom downtime di sheet DT: header (dinormalisasi) => [kategori, label, header kolom frekuensi (opsional)]
+    // Kolom downtime di sheet DT: header (dinormalisasi) => [kelompok, nama kolom persis seperti di Excel, header kolom frekuensi (opsional)]
+    // Nama ditampilkan sama dengan judul kolom Excel; hanya garis bawah (_) yang dibaca sebagai spasi.
     'downtimes' => [
         'seting awal' => ['setup', 'Seting Awal'],
         'ganti panjang' => ['setup', 'Ganti Panjang'],
         'ganti tebal' => ['setup', 'Ganti Tebal'],
 
-        'persiapan' => ['rutin', 'Persiapan'],
-        'cek hitung hasil produksi' => ['rutin', 'Cek & Hitung Hasil Produksi'],
-        'ganti air collant' => ['rutin', 'Ganti Air Coolant'],
-        'tambah oli hidrolik' => ['rutin', 'Tambah Oli Hidrolik'],
-        'bersihkan sisa potongan' => ['rutin', 'Bersihkan Sisa Potongan'],
-        'pindah box hasil produksi' => ['rutin', 'Pindah Box Hasil Produksi'],
-        'meeting' => ['rutin', 'Meeting'],
-        '5r' => ['rutin', '5R'],
-
-        'g karpet' => ['setting', 'Ganti Karpet'],
-        'seting cuting baret' => ['setting', 'Seting Cutting Baret'],
-        'seting cuting penyok' => ['setting', 'Seting Cutting Penyok'],
-        'seting lost champer' => ['setting', 'Seting Lost Champer'],
-        'seting cekam ngecap' => ['setting', 'Seting Cekam Ngecap'],
-        'potongan lolos' => ['setting', 'Potongan Lolos'],
-        'seting cuting macet' => ['setting', 'Seting Cutting Macet'],
-        'bongkar cekam cuting' => ['setting', 'Bongkar Cekam Cutting'],
-        'seting champer miring' => ['setting', 'Seting Champer Miring'],
-        'pipa nyangkut conveyor penuh circle tunggu proses deburring inline' => ['setting', 'Pipa Nyangkut / Conveyor Penuh'],
-        'seting cropcut' => ['setting', 'Seting Cropcut'],
-        'seting brushing' => ['setting', 'Seting Brushing'],
-        'seting pipasuport' => ['setting', 'Seting Pipa Support'],
-        'seting conveyor' => ['setting', 'Seting Conveyor'],
-        'seting cuting muter' => ['setting', 'Seting Cutting Muter'],
-        'seting champer muter' => ['setting', 'Seting Champer Muter'],
-        'seting panjangpendek' => ['setting', 'Seting Panjang Pendek'],
-
-        'g rumahpahat' => ['tooling', 'Ganti Rumah Pahat'],
-        'seting pahat champer' => ['tooling', 'Seting Pahat Champer', 'frek seting pahat'],
-        'p horizontal' => ['tooling', 'Pahat Horizontal', 'frek horizontal'],
-        'p vertical' => ['tooling', 'Pahat Vertical', 'frek vertical'],
-        'p plan' => ['tooling', 'Pahat Plan', 'frek plan'],
-        'p dalam' => ['tooling', 'Pahat Dalam', 'frek dalam'],
-        'p luar' => ['tooling', 'Pahat Luar', 'frek luar'],
-        'g gergaji' => ['tooling', 'Ganti Gergaji', 'f gergaji'],
-        'asah pahat' => ['tooling', 'Asah Pahat'],
-
-        'rantai brushing putus' => ['breakdown', 'Rantai Brushing Putus'],
-        'komponen mekanik elektrik rusak' => ['breakdown', 'Komponen Mekanik/Elektrik Rusak'],
-        'hydrolik rusak' => ['breakdown', 'Hidrolik Rusak'],
-        'perbaikan panel rusak' => ['breakdown', 'Perbaikan Panel Rusak'],
-        'listrik mati' => ['breakdown', 'Listrik Mati'],
-        'compressor tekanan kurang rusak' => ['breakdown', 'Compressor Kurang/Rusak'],
-        'burning feed roll' => ['breakdown', 'Burning Feed Roll'],
-        'be' => ['breakdown', 'BE'],
-
-        'preventive' => ['preventive', 'Preventive'],
-
-        'tunggu mtc' => ['menunggu', 'Tunggu MTC'],
-        'tunggu kep ppic' => ['menunggu', 'Tunggu Keputusan PPIC'],
-        'tunggu kep qc verifikasi lt' => ['menunggu', 'Tunggu Kep. QC / Verifikasi LT'],
-        'tunggu bahan' => ['menunggu', 'Tunggu Bahan'],
-        'tunggu asah gergaji' => ['menunggu', 'Tunggu Asah Gergaji'],
-        'tunggu box andang' => ['menunggu', 'Tunggu Box / Andang'],
-
-        'lain lain' => ['lain', 'Lain-lain'],
-        '-' => ['lain', 'Tanpa Keterangan'],
-        'pindah ke mesin lain' => ['lain', 'Pindah ke Mesin Lain'],
-        'waktu hilang' => ['lain', 'Waktu Hilang'],
+        'persiapan' => ['downtime', 'Persiapan'],
+        'g karpet' => ['downtime', 'G Karpet'],
+        'seting cuting baret' => ['downtime', 'Seting Cuting Baret'],
+        'seting cuting penyok' => ['downtime', 'Seting Cuting Penyok'],
+        'seting lost champer' => ['downtime', 'Seting Lost Champer'],
+        'seting cekam ngecap' => ['downtime', 'Seting Cekam Ngecap'],
+        'potongan lolos' => ['downtime', 'Potongan Lolos'],
+        'seting cuting macet' => ['downtime', 'Seting Cuting Macet'],
+        'bongkar cekam cuting' => ['downtime', 'Bongkar Cekam Cuting'],
+        'seting champer miring' => ['downtime', 'Seting Champer Miring'],
+        'pipa nyangkut conveyor penuh circle tunggu proses deburring inline' => ['downtime', 'Pipa Nyangkut Conveyor/Penuh (*Circle Tunggu Proses Deburring Inline)'],
+        'seting cropcut' => ['downtime', 'Seting Cropcut'],
+        'seting brushing' => ['downtime', 'Seting Brushing'],
+        'rantai brushing putus' => ['downtime', 'Rantai Brushing Putus'],
+        'seting pipasuport' => ['downtime', 'Seting Pipasuport'],
+        'seting conveyor' => ['downtime', 'Seting Conveyor'],
+        'seting cuting muter' => ['downtime', 'Seting Cuting Muter'],
+        'g rumahpahat' => ['downtime', 'G RumahPahat'],
+        'seting champer muter' => ['downtime', 'Seting Champer Muter'],
+        'seting panjangpendek' => ['downtime', 'Seting PanjangPendek'],
+        'seting pahat champer' => ['downtime', 'Seting Pahat Champer', 'frek seting pahat'],
+        'p horizontal' => ['downtime', 'P Horizontal', 'frek horizontal'],
+        'p vertical' => ['downtime', 'P Vertical', 'frek vertical'],
+        'p plan' => ['downtime', 'P Plan', 'frek plan'],
+        'p dalam' => ['downtime', 'P Dalam', 'frek dalam'],
+        'p luar' => ['downtime', 'P Luar', 'frek luar'],
+        'g gergaji' => ['downtime', 'G Gergaji', 'f gergaji'],
+        'cek hitung hasil produksi' => ['downtime', 'Cek & Hitung Hasil produksi'],
+        'ganti air collant' => ['downtime', 'Ganti Air Collant'],
+        'tambah oli hidrolik' => ['downtime', 'Tambah Oli Hidrolik'],
+        'bersihkan sisa potongan' => ['downtime', 'Bersihkan Sisa Potongan'],
+        'lain lain' => ['downtime', 'Lain -Lain'],
+        'komponen mekanik elektrik rusak' => ['downtime', 'Komponen Mekanik/Elektrik Rusak'],
+        'hydrolik rusak' => ['downtime', 'Hydrolik Rusak'],
+        'perbaikan panel rusak' => ['downtime', 'Perbaikan Panel Rusak'],
+        'listrik mati' => ['downtime', 'Listrik Mati'],
+        'compressor tekanan kurang rusak' => ['downtime', 'COMPRESSOR TEKANAN KURANG / RUSAK'],
+        'preventive' => ['downtime', 'PREVENTIVE'],
+        '-' => ['downtime', '-'], // dua kolom berjudul "-" (BQ & CE) dijumlah
+        'asah pahat' => ['downtime', 'Asah Pahat'],
+        'burning feed roll' => ['downtime', 'Burning Feed Roll'],
+        'tunggu mtc' => ['downtime', 'Tunggu MTC'],
+        'be' => ['downtime', 'BE'],
+        'tunggu kep ppic' => ['downtime', 'Tunggu Kep PPIC'],
+        'tunggu kep qc verifikasi lt' => ['downtime', 'Tunggu Kep QC, Verifikasi LT'],
+        'tunggu bahan' => ['downtime', 'Tunggu Bahan'],
+        'pindah box hasil produksi' => ['downtime', 'Pindah Box Hasil Produksi'],
+        'tunggu asah gergaji' => ['downtime', 'Tunggu Asah Gergaji'],
+        'tunggu box andang' => ['downtime', 'Tunggu Box/Andang'],
+        'pindah ke mesin lain' => ['downtime', 'Pindah Ke Mesin Lain'],
+        'waktu hilang' => ['downtime', 'Waktu Hilang'],
+        'meeting' => ['downtime', 'Meeting'],
+        '5r' => ['downtime', '5R'],
     ],
 
     // Kolom teks keterangan di sheet DT (digabung jadi satu catatan)
@@ -185,6 +181,11 @@ return [
             'Setting Awal' => 'seting awal',
             'Ganti Panjang' => 'ganti panjang',
             'Ganti Tebal' => 'ganti tebal',
+        ],
+        // Bongkar (di form karu tampil setelah Set Up); dihitung sebagai downtime
+        'bongkar' => [
+            'Bongkar Pasang Cekam' => 'bongkar cekam cuting',
+            'Lain-lain' => 'lain lain',
         ],
         'dt' => [
             'umum' => [
@@ -253,7 +254,20 @@ return [
             'Penggunaan APD', '5R', 'Pengisian history P.cutting', 'Pengisian history P chamfer', 'Pengisian history Gergaji',
         ],
         'visual' => ['OK', 'NG', 'Perlu tindak lanjut'],
-        'jig' => ['JIG In/Out', 'JIG Panjang', 'JIG GRONOGO'],
+        'jig' => ['JIG In', 'JIG Out', 'JIG Panjang', 'JIG GONOROGO'],
+    ],
+
+    // Kontak Admin Master untuk reset password (link "Lupa password?" di halaman login)
+    'admin_contact' => [
+        'name' => env('ADMIN_CONTACT_NAME', 'Rizki'),
+        'whatsapp' => env('ADMIN_CONTACT_WHATSAPP', '6285156532626'), // format wa.me: kode negara tanpa +
+        'whatsapp_display' => env('ADMIN_CONTACT_WHATSAPP_DISPLAY', '+62 851-5653-2626'),
+    ],
+
+    // Jadwal shift karu: 2 shift sehari, 6 karu per shift. Shift 2 melewati tengah malam (tanggal = tanggal mulai shift).
+    'karu_shifts' => [
+        1 => ['start' => '07:00', 'end' => '18:00'],
+        2 => ['start' => '18:00', 'end' => '07:00'],
     ],
 
     // Data awal Karu (seed)

@@ -30,3 +30,8 @@ Thumbs.db
 /docs/*
 !/docs/template_import_produksi.xlsx
 !/docs/template_import_produksi_CONTOH.xlsx
+
+# Backup database & arsip lokal (berisi data asli) — jangan di-commit
+/storage/backups
+*.rar
+/public/monitoring-karu.png

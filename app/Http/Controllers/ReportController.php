@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\ActivityLog;
 use App\Models\Area;
 use App\Models\Machine;
 use App\Models\ProductionReport;
@@ -79,7 +80,7 @@ class ReportController extends Controller
                         $r->setup_minutes, $r->cutting_minutes,
                         $r->working_minutes ? round($r->cutting_minutes / $r->working_minutes, 4) : null,
                         (float) $r->ok_kg, (float) $r->nc_kg, (float) $r->reject_kg, (float) $r->total_kg, $r->downtime_note,
-                        $r->creator?->name, $r->updater?->name, $r->updated_at?->format("Y-m-d H:i"),
+                        $r->creator?->name, $r->updater?->name, $r->updated_at?->format('Y-m-d H:i'),
                     ]));
                 });
             $writer->close();
@@ -89,7 +90,7 @@ class ReportController extends Controller
     public function show(ProductionReport $report)
     {
         $report->load(['machine', 'customer', 'material', 'defects.type', 'downtimes.reason.category', 'batch.user', 'creator', 'updater']);
-        $history = \App\Models\ActivityLog::where('subject_type', 'production_data')
+        $history = ActivityLog::where('subject_type', 'production_data')
             ->where('subject_key', $report->production_date->toDateString().'|'.$report->shift)
             ->latest('id')->limit(10)->get()
             ->map(fn ($l) => [

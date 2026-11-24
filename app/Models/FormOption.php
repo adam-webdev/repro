@@ -11,7 +11,7 @@ class FormOption extends Model
     protected $casts = ['is_active' => 'boolean'];
 
     public const GROUPS = [
-        'setup' => 'Set Up', 'dt' => 'Downtime', 'compliance' => 'Kontrol Kepatuhan', 'visual' => 'Visual', 'jig' => 'JIG',
+        'setup' => 'Set Up', 'bongkar' => 'Bongkar', 'dt' => 'Downtime', 'compliance' => 'Kontrol Kepatuhan', 'visual' => 'Visual', 'jig' => 'JIG',
     ];
 
     public function downtimeReason()

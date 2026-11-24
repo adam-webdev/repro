@@ -22,6 +22,8 @@
             @endif
         </div>
     </div>
+    {{-- Nama karu & siapa input / ubah hanya untuk admin; karu cukup melihat form miliknya sendiri. --}}
+    @if (auth()->user()->role !== 'karu')
     <dl class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-[13px]">
         <div>
             <dt class="label !mb-0.5">Kepala Regu</dt>
@@ -36,4 +38,5 @@
             <dd><x-user-link :employee="$form->updater?->employee_id" :name="$form->updater?->name" :sub="$form->updated_at->format('d/m/Y H:i')" /></dd>
         </div>
     </dl>
+    @endif
 </div>

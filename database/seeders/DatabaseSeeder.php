@@ -70,6 +70,7 @@ class DatabaseSeeder extends Seeder
             }
         };
         $put('setup', null, $opts['setup']);
+        $put('bongkar', null, $opts['bongkar']);
         $put('dt', null, $opts['dt']['umum']);
         $put('dt', 'laser', $opts['dt']['laser']);
         $put('dt', 'exs', $opts['dt']['exs']);

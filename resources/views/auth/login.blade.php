@@ -40,7 +40,7 @@
             <h1 class="text-[26px] font-semibold tracking-tight">Masuk</h1>
             <p class="text-[14px] mt-1.5" style="color:var(--muted)">Production Monitoring · Departemen Repro</p>
 
-            <form method="POST" action="{{ url('/login') }}" class="mt-8 space-y-4" x-data>
+            <form method="POST" action="{{ url('/login') }}" id="login-form" class="mt-8 space-y-4">
                 @csrf
                 <div>
                     <label class="label !text-[13px]" for="login">Username / Kode Karu</label>
@@ -71,10 +71,44 @@
                     <input type="checkbox" name="remember" value="1" class="w-4 h-4"> Ingat saya di perangkat ini
                 </label>
 
-                <button class="btn btn-primary w-full !h-12 !text-[15px] !mt-6">Masuk</button>
+                <button id="login-submit" class="btn btn-primary w-full !h-12 !text-[15px] !mt-6 disabled:opacity-70 disabled:cursor-wait">
+                    <svg class="login-spin animate-spin" style="display:none" width="18" height="18" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                        <circle cx="12" cy="12" r="9" stroke="currentColor" stroke-opacity=".3" stroke-width="3"/>
+                        <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+                    </svg>
+                    <span class="login-label">Masuk</span>
+                </button>
             </form>
+            <script>
+                // Kunci tombol saat form dikirim agar tidak terkirim berkali-kali; dibuka lagi bila kembali lewat tombol Back.
+                (function () {
+                    var form = document.getElementById('login-form'), btn = document.getElementById('login-submit');
+                    var setLoading = function (on) {
+                        btn.disabled = on;
+                        btn.setAttribute('aria-busy', on ? 'true' : 'false');
+                        btn.querySelector('.login-spin').style.display = on ? '' : 'none';
+                        btn.querySelector('.login-label').textContent = on ? 'Memproses…' : 'Masuk';
+                    };
+                    form.addEventListener('submit', function (e) {
+                        if (btn.disabled) { e.preventDefault(); return; }
+                        setLoading(true);
+                    });
+                    window.addEventListener('pageshow', function () { setLoading(false); });
+                })();
+            </script>
 
-            <p class="text-[12.5px] mt-6" style="color:var(--muted)">Lupa password? Hubungi Admin Master untuk reset.</p>
+            @php
+                $admin = config('production.admin_contact');
+                $waText = rawurlencode('Halo Admin '.$admin['name'].', saya lupa password akun Production Monitoring Repro. Username / kode karu saya: ');
+            @endphp
+            <a href="https://wa.me/{{ $admin['whatsapp'] }}?text={{ $waText }}" target="_blank" rel="noopener"
+               class="mt-6 flex items-center gap-3 rounded-xl border px-4 py-3 hover:bg-[var(--hover)] transition-colors" style="border-color:var(--border)">
+                <span class="grid place-items-center w-9 h-9 rounded-full shrink-0" style="background:#25d366;color:#fff"><x-icon name="message-circle" :size="18" /></span>
+                <span class="min-w-0">
+                    <span class="block text-[13.5px] font-semibold">Lupa password?</span>
+                    <span class="block text-[12.5px]" style="color:var(--muted)">Hubungi Admin Master {{ $admin['name'] }} via WhatsApp · {{ $admin['whatsapp_display'] }}</span>
+                </span>
+            </a>
         </div>
 
         <div class="pt-6 text-[12px]" style="color:var(--muted)">© {{ date('Y') }} SPINDO · Departemen Repro</div>

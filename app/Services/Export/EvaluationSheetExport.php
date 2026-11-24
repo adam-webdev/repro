@@ -24,7 +24,7 @@ class EvaluationSheetExport
 
     public function build(EvaluationForm $form): Spreadsheet
     {
-        $form->loadMissing(['user.employee', 'area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliance']);
+        $form->loadMissing(['user.employee', 'area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances']);
 
         $book = IOFactory::load(resource_path(self::TEMPLATE));
         $master = $book->getSheet(0);
@@ -105,8 +105,8 @@ class EvaluationSheetExport
         // Jig: lembar kertas punya dua kotak, "In/Out" dan "Panjang"; pilihan lain dicatat di kolom keterangan
         $notes = [];
         $jig = $c->jig?->label;
-        if ($jig && stripos($jig, 'in/out') !== false) {
-            $ws->setCellValue("K{$r}", 'In/Out : '.self::TICK);
+        if ($jig && preg_match('/jig (in|out)|in\/out/i', $jig)) {
+            $ws->setCellValue("K{$r}", 'In/Out : '.self::TICK.(preg_match('/jig (in|out)$/i', $jig, $m) ? ' '.ucfirst(strtolower($m[1])) : ''));
         } elseif ($jig && stripos($jig, 'panjang') !== false) {
             $ws->setCellValue("K{$r2}", 'Panjang : '.self::TICK);
         } elseif ($jig || $c->jig_other) {
@@ -115,8 +115,13 @@ class EvaluationSheetExport
 
         $ws->setCellValue("L{$r}", $c->visual?->label ?? $c->visual_other);
         $ws->setCellValue("M{$r}", $c->actual_cutting);
-        $compliance = $c->compliance?->label ?? $c->compliance_other;
+        $compliance = $c->complianceText();
         $ws->setCellValue("N{$r}", $compliance ? self::TICK.' '.$compliance : null);
+
+        // Kolom planning tidak ada di lembar kertas: dicatat di keterangan
+        if ($c->planned_start || $c->planned_qty !== null) {
+            $notes[] = 'Planning: '.trim(($c->planned_start ? 'start '.substr($c->planned_start, 0, 5) : '').($c->planned_qty !== null ? ' · '.number_format($c->planned_qty, 0, ',', '.').' pcs' : ''), ' ·');
+        }
 
         if ($c->od_mm !== null) {
             $notes[] = 'OD: '.rtrim(rtrim(number_format((float) $c->od_mm, 3, ',', ''), '0'), ',');

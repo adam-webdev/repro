@@ -22,7 +22,7 @@ class EvaluationFormController extends Controller
         $from = $request->input('from') ?: now()->subDays(6)->toDateString();
 
         $forms = EvaluationForm::query()
-            ->with(['user.employee', 'area', 'updater', 'checks.machine:id,code', 'checks.visual', 'checks' => fn ($q) => $q->withCount('attachments')])
+            ->with(['user.employee', 'area', 'creator', 'updater', 'checks.machine:id,code', 'checks.visual', 'checks' => fn ($q) => $q->withCount('attachments')])
             ->whereBetween('form_date', [$from, $to])
             ->when($user->role === 'karu', fn ($q) => $q->where('user_id', $user->id))
             ->when($request->filled('shift'), fn ($q) => $q->where('shift', $request->integer('shift')))
@@ -57,7 +57,7 @@ class EvaluationFormController extends Controller
         $u = $request->user();
         abort_if($u->role === 'karu' && $form->user_id !== $u->id, 403, 'Anda hanya bisa melihat form milik Anda sendiri.');
         abort_if($form->trashed() && ! $u->isMaster(), 404);
-        $form->load(['user.employee', 'area', 'creator', 'updater', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliance', 'checks.attachments']);
+        $form->load(['user.employee', 'area', 'creator', 'updater', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments']);
 
         return view('forms.evaluation.show', [
             'form' => $form,
@@ -83,7 +83,7 @@ class EvaluationFormController extends Controller
     public function edit(Request $request, EvaluationForm $form)
     {
         abort_unless(KaruFormService::canEdit($request->user(), $form), 403, 'Hanya Karu pembuat form atau Admin Master yang bisa mengubah form ini.');
-        $form->load(['checks.customer', 'checks.attachments', 'user']);
+        $form->load(['checks.customer', 'checks.compliances', 'checks.attachments', 'user']);
         $opt = fn ($id, $other) => $id ?? ($other ? 'other' : '');
         $num = fn ($v) => $v !== null ? (float) $v : null;
 
@@ -97,12 +97,14 @@ class EvaluationFormController extends Controller
                 'checks' => $form->checks->map(fn ($c) => [
                     'check_time' => $c->check_time ? substr($c->check_time, 0, 5) : '',
                     'machine_id' => $c->machine_id, 'customer' => $c->customer?->name, 'dimension' => $c->dimension,
+                    'planned_start' => $c->planned_start ? substr($c->planned_start, 0, 5) : '',
                     'od_mm' => $num($c->od_mm), 'd1' => $num($c->d1), 'd2' => $num($c->d2), 'd3' => $num($c->d3), 'd4' => $num($c->d4),
                     'thickness_mm' => $num($c->thickness_mm), 'ib_height_mm' => $num($c->ib_height_mm), 'length_mm' => $num($c->length_mm),
                     'jig_option_id' => $opt($c->jig_option_id, $c->jig_other), 'jig_other' => $c->jig_other,
                     'visual_option_id' => $opt($c->visual_option_id, $c->visual_other), 'visual_other' => $c->visual_other,
-                    'compliance_option_id' => $opt($c->compliance_option_id, $c->compliance_other), 'compliance_other' => $c->compliance_other,
-                    'actual_cutting' => $c->actual_cutting, 'problem' => $c->problem,
+                    'compliance_ids' => $c->compliances->pluck('id')->values(), 'compliance_other_on' => (bool) $c->compliance_other,
+                    'compliance_other' => $c->compliance_other,
+                    'actual_cutting' => $c->actual_cutting, 'planned_qty' => $c->planned_qty, 'problem' => $c->problem,
                     'photos' => $c->attachments->map(fn ($a) => ['id' => $a->id, 'url' => $a->url()])->values(),
                 ])->values(),
             ],

@@ -28,6 +28,7 @@
             <div>
                 <div class="card-title">Detail pengecekan</div>
                 <div class="card-sub">Satu baris = satu jam cek / mesin. Centang yang sesuai, sama seperti di lembar kertas.</div>
+                <div class="text-[12.5px] mt-1 flex items-center gap-1.5" style="color:var(--ink-2)"><x-icon name="info" :size="14" /><span><b>Semua kolom wajib diisi (*)</b>, termasuk minimal 1 evidence foto. Jika tidak ada masalah, tulis "Tidak ada" di Problem.</span></div>
             </div>
             <span class="chip chip-muted lg:hidden"><x-icon name="arrow-left-right" :size="13" />Geser ke samping</span>
         </div>
@@ -36,21 +37,23 @@
             <table class="sheet">
                 <thead>
                     <tr>
-                        <th rowspan="2" class="sheet-sticky w-[118px]">Jam cek</th>
-                        <th rowspan="2" class="min-w-[150px]">Mesin *</th>
-                        <th rowspan="2" class="min-w-[190px]">Customer &amp; dimensi</th>
-                        <th colspan="7" class="sheet-group">Pengecekan aktual (mm)</th>
-                        <th rowspan="2" class="min-w-[150px]">Jig</th>
-                        <th rowspan="2" class="min-w-[150px]">Visual</th>
-                        <th rowspan="2" class="min-w-[100px]">Actual cutting<br><span class="font-normal">(pcs)</span></th>
-                        <th rowspan="2" class="min-w-[210px]">Kontrol kepatuhan</th>
-                        <th rowspan="2" class="min-w-[220px]">Problem / keterangan</th>
-                        <th rowspan="2" class="min-w-[170px]">Evidence foto</th>
+                        <th rowspan="2" class="sheet-sticky w-[104px]">Jam cek *</th>
+                        <th rowspan="2" class="min-w-[124px]">Mesin *</th>
+                        <th rowspan="2" class="min-w-[190px]">Customer &amp; dimensi *</th>
+                        <th rowspan="2" class="w-[104px]">Start jam<br><span class="font-normal">planning *</span></th>
+                        <th colspan="7" class="sheet-group">Pengecekan aktual (mm) *</th>
+                        <th rowspan="2" class="min-w-[140px]">Jig *</th>
+                        <th rowspan="2" class="min-w-[140px]">Visual *</th>
+                        <th rowspan="2" class="w-[92px]">Actual cutting<br><span class="font-normal">(pcs) *</span></th>
+                        <th rowspan="2" class="w-[92px]">Qty planning<br><span class="font-normal">(pcs) *</span></th>
+                        <th rowspan="2" class="min-w-[210px]">Kontrol kepatuhan *</th>
+                        <th rowspan="2" class="min-w-[220px]">Problem / keterangan *</th>
+                        <th rowspan="2" class="min-w-[170px]">Evidence foto *</th>
                         <th rowspan="2" class="w-[52px]"><span class="sr-only">Aksi</span></th>
                     </tr>
                     <tr>
                         @foreach ($measures as [$k, $l])
-                            <th class="sheet-sub min-w-[84px]">{{ $l }}</th>
+                            <th class="sheet-sub w-[68px]">{{ $l }}</th>
                         @endforeach
                     </tr>
                 </thead>
@@ -60,7 +63,8 @@
                             {{-- jam cek + nomor baris (kolom ini tetap terlihat saat digeser) --}}
                             <td class="sheet-sticky">
                                 <div class="text-[11px] font-semibold mb-1" style="color:var(--muted)" x-text="'#' + (i + 1)"></div>
-                                <input type="time" class="input" x-model="c.check_time" aria-label="Jam cek">
+                                <input type="time" class="input" x-model="c.check_time" aria-label="Jam cek"
+                                       :class="err(`checks.${i}.check_time`) && 'is-invalid'" :data-error="err(`checks.${i}.check_time`) ? 1 : null" :title="err(`checks.${i}.check_time`)">
                             </td>
                             <td>
                                 <select class="input" x-model="c.machine_id" aria-label="Mesin"
@@ -72,13 +76,19 @@
                             </td>
                             <td>
                                 <div class="space-y-1.5">
-                                    <label class="sheet-pre"><span>Cust</span><input class="input" list="customers" x-model="c.customer" placeholder="Customer"></label>
-                                    <label class="sheet-pre"><span>Size</span><input class="input" x-model="c.dimension" placeholder="Ø10 × 1,3 × 862"></label>
+                                    <label class="sheet-pre"><span>Cust</span><input class="input" list="customers" x-model="c.customer" placeholder="Customer"
+                                        :class="err(`checks.${i}.customer`) && 'is-invalid'" :data-error="err(`checks.${i}.customer`) ? 1 : null" :title="err(`checks.${i}.customer`)"></label>
+                                    <label class="sheet-pre"><span>Size</span><input class="input" x-model="c.dimension" placeholder="Ø10 × 1,3 × 862"
+                                        :class="err(`checks.${i}.dimension`) && 'is-invalid'" :data-error="err(`checks.${i}.dimension`) ? 1 : null" :title="err(`checks.${i}.dimension`)"></label>
                                 </div>
+                            </td>
+                            <td>
+                                <input type="time" class="input w-[96px]" x-model="c.planned_start" aria-label="Start jam planning"
+                                       :class="err(`checks.${i}.planned_start`) && 'is-invalid'" :data-error="err(`checks.${i}.planned_start`) ? 1 : null" :title="err(`checks.${i}.planned_start`)">
                             </td>
                             @foreach ($measures as [$k, $l])
                                 <td>
-                                    <input type="number" inputmode="decimal" step="any" min="0" class="input text-right tabular-nums" x-model="c.{{ $k }}" aria-label="{{ $l }}"
+                                    <input type="number" inputmode="decimal" step="any" min="0" class="input sheet-num w-[60px]" x-model="c.{{ $k }}" aria-label="{{ $l }}"
                                            :class="err(`checks.${i}.{{ $k }}`) && 'is-invalid'" :data-error="err(`checks.${i}.{{ $k }}`) ? 1 : null"
                                            :title="err(`checks.${i}.{{ $k }}`)">
                                 </td>
@@ -86,11 +96,18 @@
                             <td>@include('forms.evaluation._ticks', ['g' => 'jig', 'l' => 'Jig'])</td>
                             <td>@include('forms.evaluation._ticks', ['g' => 'visual', 'l' => 'Visual'])</td>
                             <td>
-                                <input type="number" inputmode="numeric" min="0" class="input text-right tabular-nums" x-model="c.actual_cutting" aria-label="Actual cutting">
+                                <input type="number" inputmode="numeric" min="0" class="input sheet-num w-[80px]" x-model="c.actual_cutting" aria-label="Actual cutting"
+                                       :class="err(`checks.${i}.actual_cutting`) && 'is-invalid'" :data-error="err(`checks.${i}.actual_cutting`) ? 1 : null" :title="err(`checks.${i}.actual_cutting`)">
                             </td>
-                            <td>@include('forms.evaluation._ticks', ['g' => 'compliance', 'l' => 'Kontrol kepatuhan'])</td>
                             <td>
-                                <textarea class="input sheet-note" rows="3" x-model="c.problem" placeholder="Temuan atau keterangan" aria-label="Problem / keterangan"></textarea>
+                                <input type="number" inputmode="numeric" min="0" class="input sheet-num w-[80px]" x-model="c.planned_qty" aria-label="Qty planning"
+                                       :class="err(`checks.${i}.planned_qty`) && 'is-invalid'" :data-error="err(`checks.${i}.planned_qty`) ? 1 : null" :title="err(`checks.${i}.planned_qty`)">
+                            </td>
+                            <td>@include('forms.evaluation._ticks_multi')</td>
+                            <td>
+                                <textarea class="input sheet-note" rows="3" x-model="c.problem" placeholder="Temuan / keterangan, atau &quot;Tidak ada&quot;" aria-label="Problem / keterangan"
+                                          :class="err(`checks.${i}.problem`) && 'is-invalid'" :data-error="err(`checks.${i}.problem`) ? 1 : null"></textarea>
+                                <span class="field-err" x-text="err(`checks.${i}.problem`)"></span>
                             </td>
                             <td>
                                 <div class="flex flex-wrap gap-1.5">
@@ -103,11 +120,16 @@
                                                     style="background:rgba(0,0,0,.6);color:#fff" aria-label="Hapus foto"><x-icon name="x" :size="11" :stroke="2.25" /></button>
                                         </div>
                                     </template>
-                                    <label class="thumb !w-12 !h-12 grid place-items-center cursor-pointer" style="border-style:dashed" title="Tambah foto">
+                                    <label class="thumb !w-12 !h-12 grid place-items-center cursor-pointer" style="border-style:dashed" title="Ambil foto dengan kamera" aria-label="Ambil foto dengan kamera">
+                                        <x-icon name="camera" :size="18" style="color:var(--ink-2)" />
+                                        <input type="file" accept="image/*" capture="environment" class="hidden" @change="addPhotos(c, $event.target.files); $event.target.value = ''">
+                                    </label>
+                                    <label class="thumb !w-12 !h-12 grid place-items-center cursor-pointer" style="border-style:dashed" title="Pilih foto dari galeri" aria-label="Pilih foto dari galeri">
                                         <x-icon name="image-plus" :size="18" style="color:var(--ink-2)" />
                                         <input type="file" accept="image/*" multiple class="hidden" @change="addPhotos(c, $event.target.files); $event.target.value = ''">
                                     </label>
                                 </div>
+                                <span class="field-err" :data-error="err(`checks.${i}.attachments`) ? 1 : null" x-text="err(`checks.${i}.attachments`)"></span>
                             </td>
                             <td class="text-center">
                                 <button type="button" class="icon-btn" style="color:var(--st-crit)" x-show="f.checks.length > 1" @click="removeCheck(i)" :aria-label="'Hapus baris #' + (i + 1)">
@@ -122,7 +144,7 @@
 
         <div class="card-pad !py-3 border-t" style="border-color:var(--border)">
             <button type="button" class="btn w-full sm:w-auto" style="border-style:dashed" @click="addCheck()"><x-icon name="plus" :size="16" />Tambah baris pengecekan</button>
-            <p class="text-[12px] mt-2" style="color:var(--muted)">Baris baru otomatis memakai mesin, customer &amp; size dari baris sebelumnya. Jam cek terisi jam sekarang.</p>
+            <p class="text-[12px] mt-2" style="color:var(--muted)">Baris baru otomatis memakai mesin, customer, size &amp; planning dari baris sebelumnya. Jam cek terisi jam sekarang.</p>
         </div>
     </div>
 

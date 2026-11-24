@@ -42,7 +42,7 @@
         <div class="card-pad !pb-2"><div class="card-title">Riwayat produksi order ini</div><div class="card-sub">Per shift dan mesin</div></div>
         <div class="overflow-x-auto px-2 pb-2">
             <table class="tbl">
-                <thead><tr><th>Tanggal</th><th>Shift</th><th>Mesin</th><th>Jam</th><th class="num">Bahan baku</th><th class="num">Baik</th><th class="num">NC</th><th class="num">Reject</th><th class="num">Downtime</th><th class="num">Cutting</th></tr></thead>
+                <thead><tr><th>Tanggal</th><th>Shift</th><th>Mesin</th><th>Jam</th><th class="num">Bahan baku</th><th class="num">Baik</th><th class="num">NC</th><th class="num">Reject</th><th class="num">Jam kerja</th><th class="num">Downtime</th><th class="num">Cutting time</th><th class="num">Cutting %</th></tr></thead>
                 <tbody>
                 @foreach ($reports as $r)
                     @php $ct = $r->working_minutes ? $r->cutting_minutes / $r->working_minutes * 100 : null; @endphp
@@ -55,7 +55,9 @@
                         <td class="num">{{ number_format($r->ok_qty, 0, ',', '.') }}</td>
                         <td class="num">{{ $r->nc_qty ? number_format($r->nc_qty, 0, ',', '.') : '–' }}</td>
                         <td class="num">{{ $r->reject_qty ? number_format($r->reject_qty, 0, ',', '.') : '–' }}</td>
+                        <td class="num">{{ $r->working_minutes }}′</td>
                         <td class="num">{{ $r->downtime_minutes }}′</td>
+                        <td class="num">{{ $r->cutting_minutes !== null ? $r->cutting_minutes.'′' : '–' }}</td>
                         <td class="num">{{ $ct !== null ? number_format($ct, 0) . '%' : '–' }}</td>
                     </tr>
                 @endforeach

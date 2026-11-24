@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\ActivityLog;
 use App\Models\Employee;
 use App\Models\ImportBatch;
+use App\Models\ProductionForm;
 use App\Models\User;
 use App\Services\Import\ImportService;
 use App\Services\Import\TemplateBuilder;
@@ -358,6 +359,35 @@ class ImportScenarioTest extends TestCase
         $this->assertSame(96.5, (float) DB::table('sap_order_results')->where('order_no', '450001')->value('gr_percent'));
     }
 
+    public function test_master_empties_imported_data_but_keeps_accounts_master_data_and_karu_forms(): void
+    {
+        $this->import($this->fileA());
+        $this->master->forceFill(['must_change_password' => false])->save();
+        $form = ProductionForm::create(['user_id' => $this->master->id, 'form_date' => $this->d1, 'shift' => 1, 'created_by' => $this->master->id]);
+        $users = User::count();
+        $machines = DB::table('machines')->count();
+
+        $this->actingAs($this->produksi)->post('/imports/reset', ['confirmation' => 'KOSONGKAN', 'reason' => 'uji import ulang', 'skip_backup' => 1])
+            ->assertForbidden();
+        $this->actingAs($this->master)->post('/imports/reset', ['confirmation' => 'hapus', 'reason' => 'uji import ulang', 'skip_backup' => 1])
+            ->assertSessionHasErrors('confirmation');
+        $this->assertSame(5, DB::table('production_reports')->count());
+
+        $this->actingAs($this->master)->post('/imports/reset', ['confirmation' => 'KOSONGKAN', 'reason' => 'uji import ulang', 'skip_backup' => 1])
+            ->assertRedirect(route('imports.index'))->assertSessionHas('success');
+
+        foreach (['production_reports', 'production_downtimes', 'production_defects', 'daily_machine_summaries', 'production_orders', 'import_batches'] as $table) {
+            $this->assertSame(0, DB::table($table)->count(), $table);
+        }
+        $this->assertSame($users, User::count());
+        $this->assertSame($machines, DB::table('machines')->count());
+        $this->assertModelExists($form);
+        $this->assertSame(1, ActivityLog::where('subject_type', 'production_data')->where('action', 'delete')->count());
+
+        $this->import($this->fileA());
+        $this->assertSame(5, DB::table('production_reports')->count(), 'Setelah dikosongkan, import ulang berjalan normal');
+    }
+
     public function test_web_routes_for_template_and_delete(): void
     {
         $this->import($this->fileA());
@@ -374,5 +404,29 @@ class ImportScenarioTest extends TestCase
         $this->actingAs($this->produksi)->get('/reports?from='.$this->d1.'&to='.$this->d1.'&shift=2')->assertOk()->assertSee('Hapus data tanggal & shift ini', false);
         $this->actingAs($this->produksi)->get('/?from='.$this->d1.'&to='.$this->d1)->assertOk();
         $this->actingAs($this->produksi)->getJson('/dashboard/data?from='.$this->d1.'&to='.$this->d1)->assertOk()->assertJsonPath('kpi.ok', 2100 + 3000);
+    }
+
+    public function test_reset_command_empties_import_data_but_keeps_accounts_and_master(): void
+    {
+        $this->import($this->fileA());
+        $machines = DB::table('machines')->count();
+        $users = DB::table('users')->count();
+        $this->assertGreaterThan(0, DB::table('production_reports')->count());
+
+        $this->artisan('produksi:reset', ['--force' => true, '--no-backup' => true])->assertSuccessful();
+
+        foreach (['production_reports', 'production_downtimes', 'production_defects', 'daily_machine_summaries',
+            'daily_downtime_summaries', 'daily_defect_summaries', 'production_orders', 'import_batches', 'customers', 'materials'] as $t) {
+            $this->assertSame(0, DB::table($t)->count(), "$t harus kosong");
+        }
+        $this->assertSame($machines, DB::table('machines')->count());
+        $this->assertSame($users, DB::table('users')->count());
+        $this->assertGreaterThan(0, DB::table('downtime_reasons')->count());
+        $this->assertDatabaseHas('activity_logs', ['subject_type' => 'production_data', 'action' => 'delete', 'subject_label' => 'Reset data import']);
+
+        // import ulang dari nol: hasilnya sama seperti import pertama
+        $this->import($this->fileA());
+        $this->assertSame(1700 + 2850 + 560, $this->summaryOk($this->d1, 1));
+        $this->assertSame(5, DB::table('production_reports')->count());
     }
 }

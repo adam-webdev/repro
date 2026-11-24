@@ -132,11 +132,13 @@ class WorkbookParser
                             if ($kind === 'result') {
                                 $hasResultSheet = true;
                             }
+
                             continue;
                         }
                         if (++$scanned >= self::HEADER_SCAN_ROWS) {
                             break; // sheet lain (mis. master mesin) -> lewati
                         }
+
                         continue;
                     }
 
