@@ -10,7 +10,7 @@
             <div>
                 <div class="text-[12px]" style="color:var(--muted)">Order SAP</div>
                 <div class="text-[22px] font-semibold tracking-tight">{{ $order->order_no }}</div>
-                <div class="text-[14px] mt-0.5" style="color:var(--ink-2)">{{ $order->customer?->name ?? 'Customer tidak diketahui' }}</div>
+                <div class="text-[14px] mt-0.5" style="color:var(--ink-2)">@if ($order->customer)<a href="{{ route('customers.show', $order->customer) }}" class="underline underline-offset-2">{{ $order->customer->name }}</a>@else Customer tidak diketahui @endif</div>
             </div>
             <div class="text-right">
                 <div class="font-mono text-[13px]">{{ $order->material?->code ?? '-' }}</div>

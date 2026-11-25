@@ -35,3 +35,12 @@ Thumbs.db
 /storage/backups
 *.rar
 /public/monitoring-karu.png
+
+# File asisten AI / editor (lokal saja) — jangan di-commit
+/.agents
+/.claude
+/.kiro
+/.mcp.json
+/AGENTS.md
+/CLAUDE.md
+/boost.json

@@ -52,7 +52,7 @@
                             </td>
                             <td class="font-semibold whitespace-nowrap">{{ $c->machine?->code ?? '–' }}</td>
                             <td>
-                                <div class="sheet-pre"><span>Cust</span>{{ $c->customer?->name ?? '–' }}</div>
+                                <div class="sheet-pre"><span>Cust</span>@if ($c->customer && auth()->user()->hasRole('produksi'))<a href="{{ route('customers.show', $c->customer) }}" class="underline underline-offset-2">{{ $c->customer->name }}</a>@else{{ $c->customer?->name ?? '–' }}@endif</div>
                                 <div class="sheet-pre mt-1"><span>Size</span>{{ $c->dimension ?: '–' }}</div>
                             </td>
                             <td class="tabular-nums">{{ $c->planned_start ? substr($c->planned_start, 0, 5) : '–' }}</td>

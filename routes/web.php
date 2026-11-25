@@ -3,6 +3,7 @@
 use App\Http\Controllers\ActivityLogController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\CustomerController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\EmployeeController;
 use App\Http\Controllers\EvaluationFormController;
@@ -25,6 +26,7 @@ Route::middleware(['auth', 'role'])->group(function () {
     Route::get('/', [DashboardController::class, 'index'])->name('dashboard');
     Route::get('/dashboard/data', [DashboardController::class, 'data'])->name('dashboard.data');
     Route::get('/dashboard/downtime-detail', [DashboardController::class, 'downtimeDetail'])->name('dashboard.downtime-detail');
+    Route::get('/dashboard/trend', [DashboardController::class, 'trend'])->name('dashboard.trend');
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::put('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::put('/profile/password', [ProfileController::class, 'password'])->name('profile.password');
@@ -44,6 +46,7 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::get('/reports/export', [ReportController::class, 'export'])->name('reports.export');
         Route::get('/reports/{report}', [ReportController::class, 'show'])->name('reports.show');
         Route::get('/orders/{orderNo}', [OrderController::class, 'show'])->name('orders.show');
+        Route::get('/customers/{customer}', [CustomerController::class, 'show'])->name('customers.show');
     });
 
     // Monitoring Karu (pindahan dari dashboard): Admin Produksi & Admin Master

@@ -39,7 +39,7 @@ class DashboardService
 
     public function data(array $f): array
     {
-        $key = 'dash:v'.Cache::get('dashboard_version', 1).':'.md5(json_encode($f));
+        $key = 'dash2:v'.Cache::get('dashboard_version', 1).':'.md5(json_encode($f));
 
         return Cache::remember($key, now()->addMinutes(30), fn () => $this->build($f));
     }
@@ -139,6 +139,18 @@ class DashboardService
         return $this->metrics($r) + ['machines' => (int) $r->machines, 'days' => (int) $r->days];
     }
 
+    /**
+     * Tren hasil produksi / yield untuk filter area & mesin milik satu grafik (di luar filter utama).
+     *
+     * @return array{trend: list<array>}
+     */
+    public function trendData(array $f): array
+    {
+        $key = 'dash-trend:v'.Cache::get('dashboard_version', 1).':'.md5(json_encode($f));
+
+        return Cache::remember($key, now()->addMinutes(30), fn () => ['trend' => $this->trend($f)]);
+    }
+
     private function trend(array $f): array
     {
         $p = $this->periodExpr($f['period']);
@@ -156,7 +168,12 @@ class DashboardService
             ->selectRaw("$p AS period, c.key, c.name, c.sort, SUM(s.minutes) m")
             ->groupByRaw("$p, c.key, c.name, c.sort")->orderByRaw($p)->get();
 
-        $periods = $rows->pluck('period')->map(fn ($p) => substr((string) $p, 0, 10))->unique()->values();
+        $cutting = $this->base('daily_machine_summaries', $f)->selectRaw("$p AS period, SUM(s.cutting_minutes) m")
+            ->groupByRaw($p)->get()
+            ->mapWithKeys(fn ($r) => [substr((string) $r->period, 0, 10) => (float) $r->m]);
+
+        $periods = $rows->pluck('period')->map(fn ($p) => substr((string) $p, 0, 10))
+            ->merge($cutting->filter()->keys())->unique()->sort()->values();
         $cats = $rows->sortBy('sort')->unique('key')->values();
 
         return [
@@ -166,6 +183,7 @@ class DashboardService
                 'name' => $c->name,
                 'data' => $periods->map(fn ($p) => round((float) $rows->first(fn ($r) => substr((string) $r->period, 0, 10) === $p && $r->key === $c->key)?->m / 60, 1))->all(),
             ])->all(),
+            'cutting' => $periods->map(fn ($p) => round(($cutting[$p] ?? 0) / 60, 1))->all(),
         ];
     }
 
@@ -187,22 +205,32 @@ class DashboardService
         })->values()->all();
     }
 
+    /**
+     * Komposisi jam kerja: Set Up & Downtime (kelompok kolom sheet DT) + Cutting time (jam kerja − downtime).
+     *
+     * @return list<array{key: string, name: string, hours: float}>
+     */
     private function downtimeCategory(array $f): array
     {
-        return $this->base('daily_downtime_summaries', $f)
+        $rows = $this->base('daily_downtime_summaries', $f)
             ->join('downtime_categories as c', 'c.id', '=', 's.downtime_category_id')
             ->selectRaw('c.key, c.name, c.sort, SUM(s.minutes) m')
             ->groupBy('c.key', 'c.name', 'c.sort')->orderBy('c.sort')->get()
-            ->map(fn ($r) => ['key' => $r->key, 'name' => $r->name, 'hours' => round($r->m / 60, 1)])->values()->all();
+            ->map(fn ($r) => ['key' => $r->key, 'name' => $r->name, 'hours' => round($r->m / 60, 1)])->values();
+
+        $cutting = (float) $this->base('daily_machine_summaries', $f)->sum('s.cutting_minutes');
+
+        return $rows->push(['key' => 'cutting', 'name' => 'Cutting time', 'hours' => round($cutting / 60, 1)])->all();
     }
 
     /**
      * Rincian satu kelompok (Set Up / Downtime) saat grafik diklik: alasan (kolom sheet DT), mesin terbanyak
      * dan catatan keterangan dari Excel. $period = awal batang yang diklik (hari / minggu / bulan), null = seluruh filter.
+     * $reason = satu kolom DT (klik pareto downtime): rincian dibatasi ke kolom itu dan semua mesinnya ditampilkan.
      *
-     * @return array{category: string, from: string, to: string, total_hours: float, reasons: list<array>, machines: list<array>, notes: list<array>}
+     * @return array{category: string, reason: ?string, from: string, to: string, total_hours: float, reasons: list<array>, machines: list<array>, notes: list<array>}
      */
-    public function downtimeDetail(array $f, string $category, ?string $period = null): array
+    public function downtimeDetail(array $f, string $category, ?string $period = null, ?string $reason = null): array
     {
         if ($period) {
             $start = Carbon::parse($period);
@@ -217,15 +245,18 @@ class DashboardService
 
         $sum = fn () => $this->base('daily_downtime_summaries', $f)
             ->join('downtime_categories as c', 'c.id', '=', 's.downtime_category_id')
-            ->where('c.key', $category);
+            ->join('downtime_reasons as r', 'r.id', '=', 's.downtime_reason_id')
+            ->where('c.key', $category)
+            ->when($reason, fn ($q) => $q->where('r.name', $reason));
 
-        $reasons = $sum()->join('downtime_reasons as r', 'r.id', '=', 's.downtime_reason_id')
+        $reasons = $sum()
             ->selectRaw('r.name, SUM(s.minutes) m, COUNT(*) n, COUNT(DISTINCT s.machine_id) machines')
             ->groupBy('r.name')->havingRaw('SUM(s.minutes) > 0')->orderByDesc('m')->get();
         $total = max(1, (int) $reasons->sum('m'));
 
         $machines = $sum()->join('machines as mc', 'mc.id', '=', 's.machine_id')
-            ->selectRaw('mc.code, SUM(s.minutes) m')->groupBy('mc.code')->orderByDesc('m')->limit(5)->get();
+            ->selectRaw('mc.code, SUM(s.minutes) m, COUNT(*) n')->groupBy('mc.code')->havingRaw('SUM(s.minutes) > 0')
+            ->orderByDesc('m')->limit($reason ? 50 : 5)->get();
 
         $notes = $this->base('production_reports', $f, 's')
             ->join('machines as mc', 'mc.id', '=', 's.machine_id')
@@ -233,6 +264,7 @@ class DashboardService
             ->join('downtime_reasons as r', 'r.id', '=', 'd.downtime_reason_id')
             ->join('downtime_categories as c', 'c.id', '=', 'r.downtime_category_id')
             ->where('c.key', $category)->where('d.minutes', '>', 0)
+            ->when($reason, fn ($q) => $q->where('r.name', $reason))
             ->whereNotNull('s.downtime_note')->where('s.downtime_note', '<>', '')
             ->selectRaw('s.id, s.production_date, s.shift, mc.code, s.order_no, s.downtime_note, SUM(d.minutes) m')
             ->groupBy('s.id', 's.production_date', 's.shift', 'mc.code', 's.order_no', 's.downtime_note')
@@ -240,6 +272,7 @@ class DashboardService
 
         return [
             'category' => (string) config("production.downtime_categories.$category"),
+            'reason' => $reason,
             'from' => $f['from'],
             'to' => $f['to'],
             'total_hours' => round($total / 60, 1),
@@ -247,7 +280,9 @@ class DashboardService
                 'name' => $r->name, 'hours' => round($r->m / 60, 1), 'minutes' => (int) $r->m,
                 'occurrences' => (int) $r->n, 'machines' => (int) $r->machines, 'share' => round($r->m / $total * 100, 1),
             ])->values()->all(),
-            'machines' => $machines->map(fn ($r) => ['code' => $r->code, 'hours' => round($r->m / 60, 1)])->values()->all(),
+            'machines' => $machines->map(fn ($r) => [
+                'code' => $r->code, 'hours' => round($r->m / 60, 1), 'occurrences' => (int) $r->n, 'share' => round($r->m / $total * 100, 1),
+            ])->values()->all(),
             'notes' => $notes->map(fn ($r) => [
                 'date' => substr((string) $r->production_date, 0, 10), 'shift' => (int) $r->shift, 'machine' => $r->code,
                 'order_no' => $r->order_no, 'note' => $r->downtime_note, 'minutes' => (int) $r->m,
@@ -255,18 +290,36 @@ class DashboardService
         ];
     }
 
+    /**
+     * 10 jenis reject teratas beserta mesin penyumbangnya (mis. Coaxial Over hanya di mesin swaging).
+     * Dijumlah per id jenis & mesin tanpa join (cepat untuk rentang panjang), nama dipasang setelahnya.
+     *
+     * @return list<array{name: string, qty: int, share: float, cumulative: float, machines: list<array{code: string, qty: int}>}>
+     */
     private function defectPareto(array $f): array
     {
         $rows = $this->base('daily_defect_summaries', $f)
-            ->join('defect_types as d', 'd.id', '=', 's.defect_type_id')
-            ->selectRaw('d.name, SUM(s.qty) q')->groupBy('d.name')->orderByDesc('q')->get();
-        $total = max(1, $rows->sum('q'));
+            ->selectRaw('s.defect_type_id, s.machine_id, SUM(s.qty) q')->groupBy('s.defect_type_id', 's.machine_id')->get();
+        $typeName = DB::table('defect_types')->whereIn('id', $rows->pluck('defect_type_id')->unique())->pluck('name', 'id');
+        $machineCode = DB::table('machines')->whereIn('id', $rows->pluck('machine_id')->unique())->pluck('code', 'id');
+
+        $byType = $rows->groupBy(fn ($r) => $typeName[$r->defect_type_id] ?? '-')
+            ->map(fn ($g, $name) => [
+                'name' => $name,
+                'qty' => (int) $g->sum('q'),
+                'machines' => $g->groupBy(fn ($r) => $machineCode[$r->machine_id] ?? '-')
+                    ->map(fn ($m, $code) => ['code' => $code, 'qty' => (int) $m->sum('q')])
+                    ->filter(fn ($m) => $m['qty'] > 0)->sortByDesc('qty')->values()->all(),
+            ])
+            ->sortByDesc('qty')->values();
+        $total = max(1, $byType->sum('qty'));
         $cum = 0;
 
-        return $rows->take(10)->map(function ($r) use ($total, &$cum) {
-            $cum += $r->q;
+        return $byType->take(10)->map(function ($r) use ($total, &$cum) {
+            $cum += $r['qty'];
 
-            return ['name' => $r->name, 'qty' => (int) $r->q, 'share' => round($r->q / $total * 100, 1), 'cumulative' => round($cum / $total * 100, 1)];
+            return ['name' => $r['name'], 'qty' => $r['qty'], 'share' => round($r['qty'] / $total * 100, 1),
+                'cumulative' => round($cum / $total * 100, 1), 'machines' => $r['machines']];
         })->values()->all();
     }
 
@@ -290,12 +343,24 @@ class DashboardService
             ->map(fn ($r) => ['shift' => (int) $r->shift] + $this->metrics($r))->values()->all();
     }
 
+    /**
+     * Satu batang per area (tidak dipecah per gudang) beserta daftar mesin yang berproduksi di area itu.
+     *
+     * @return list<array<string, mixed>>
+     */
     private function byArea(array $f): array
     {
+        $machines = $this->base('daily_machine_summaries', $f)->join('machines as m', 'm.id', '=', 's.machine_id')
+            ->leftJoin('areas as a', 'a.id', '=', 's.area_id')
+            ->selectRaw("COALESCE(a.name, 'Tanpa area') area, m.code, SUM(s.ok_qty) ok")
+            ->groupBy('a.name', 'm.code')->orderBy('m.code')->get()->groupBy('area');
+
         return $this->base('daily_machine_summaries', $f)->leftJoin('areas as a', 'a.id', '=', 's.area_id')
-            ->selectRaw("COALESCE(a.name, 'Tanpa area') area, s.building, ".self::SUMS)
-            ->groupBy('a.name', 's.building')->orderBy('a.name')->get()
-            ->map(fn ($r) => ['area' => $r->area, 'building' => $r->building] + $this->metrics($r))->values()->all();
+            ->selectRaw("COALESCE(a.name, 'Tanpa area') area, ".self::SUMS)
+            ->groupBy('a.name')->orderBy('a.name')->get()
+            ->map(fn ($r) => ['area' => $r->area] + $this->metrics($r) + [
+                'machines' => ($machines[$r->area] ?? collect())->map(fn ($m) => ['code' => $m->code, 'ok' => (int) $m->ok])->values()->all(),
+            ])->values()->all();
     }
 
     private function byMachine(array $f): array
@@ -349,7 +414,7 @@ class DashboardService
     private function topCustomers(array $f): array
     {
         return $this->base('production_reports', $f, 's')->join('customers as c', 'c.id', '=', 's.customer_id')
-            ->selectRaw('c.name, SUM(s.ok_qty) q, SUM(s.ok_kg) kg')->groupBy('c.name')->orderByDesc('q')->limit(8)->get()
-            ->map(fn ($r) => ['name' => $r->name, 'qty' => (int) $r->q, 'kg' => round((float) $r->kg)])->values()->all();
+            ->selectRaw('c.id, c.name, SUM(s.ok_qty) q, SUM(s.ok_kg) kg')->groupBy('c.id', 'c.name')->orderByDesc('q')->limit(8)->get()
+            ->map(fn ($r) => ['id' => $r->id, 'name' => $r->name, 'qty' => (int) $r->q, 'kg' => round((float) $r->kg)])->values()->all();
     }
 }

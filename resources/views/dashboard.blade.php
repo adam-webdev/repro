@@ -3,7 +3,10 @@
         'filters' => $filters,
         'endpoint' => route('dashboard.data'),
         'detailEndpoint' => route('dashboard.downtime-detail'),
+        'trendEndpoint' => route('dashboard.trend'),
+        'areas' => $areas,
         'canOpenForms' => auth()->user()->hasRole('karu', 'produksi'),
+        'customerUrl' => auth()->user()->hasRole('produksi') ? route('customers.show', '__ID__') : null,
         'machines' => $machines,
         'minDate' => $range->min ?? null,
         'maxDate' => $range->max ?? null,
@@ -29,24 +32,43 @@
         </template>
     </div>
 
+    {{-- ===================== CUTTING TIME PER MESIN ===================== --}}
+    <div class="card card-pad">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+            <div>
+                <div class="card-title">Cutting time % per mesin</div>
+                <div class="card-sub">Cutting time ÷ jam kerja per mesin · hijau ≥ 85%, kuning ≥ 75%, merah &lt; 75% · garis putus-putus = rata-rata · <b>klik batang</b> untuk lihat downtime mesin itu</div>
+            </div>
+            <div class="text-right" x-show="d">
+                <div class="text-[11.5px]" style="color:var(--muted)">Rata-rata</div>
+                <div class="text-[20px] font-semibold leading-tight" x-text="pct(d?.kpi.cutting_pct)"></div>
+            </div>
+        </div>
+        <div id="ch-cutting-machine" class="mt-2 min-h-[340px] cursor-pointer"></div>
+    </div>
+
+    @include('dashboard._downtime_detail', ['anchor' => 'machine'])
+
     {{-- ===================== HASIL & YIELD ===================== --}}
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-        <div class="card card-pad xl:col-span-2">
+    <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+        <div class="card card-pad">
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <div class="card-title">Hasil produksi</div>
-                    <div class="card-sub">Baik, NC, dan Reject (pcs) per <span x-text="periodLabel()"></span></div>
+                    <div class="card-sub">Baik, NC, dan Reject (pcs) per <span x-text="periodLabel()"></span><span x-show="chartScope('production')" x-text="' · ' + chartScope('production')"></span></div>
                 </div>
-                <div class="seg">
+                <div class="seg shrink-0">
                     <button :class="prodMode==='stack' && 'on'" @click="prodMode='stack'; renderProduction()">Jumlah</button>
                     <button :class="prodMode==='pct' && 'on'" @click="prodMode='pct'; renderProduction()">Persen</button>
                 </div>
             </div>
+            @include('dashboard._chart_filter', ['chart' => 'production'])
             <div id="ch-production" class="mt-2 min-h-[300px]"></div>
         </div>
         <div class="card card-pad">
             <div class="card-title">Yield & cutting time</div>
-            <div class="card-sub">Yield = (Baik + NC) × panjang hasil ÷ bahan baku · Cutting time = (jam kerja − downtime) ÷ jam kerja</div>
+            <div class="card-sub">Yield = (Baik + NC) × panjang hasil ÷ bahan baku · Cutting time = (jam kerja − downtime) ÷ jam kerja<span x-show="chartScope('yield')" x-text="' · ' + chartScope('yield')"></span></div>
+            @include('dashboard._chart_filter', ['chart' => 'yield'])
             <div id="ch-yield" class="mt-2 min-h-[300px]"></div>
         </div>
     </div>
@@ -55,95 +77,32 @@
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <div class="card card-pad xl:col-span-2">
             <div class="card-title">Tren Set Up &amp; Downtime</div>
-            <div class="card-sub">Jam downtime per <span x-text="periodLabel()"></span> · <b>klik batang</b> untuk lihat penyebabnya</div>
+            <div class="card-sub">Jam Set Up &amp; Downtime (batang, sumbu kiri) dan jam cutting time (garis, sumbu kanan) per <span x-text="periodLabel()"></span> · <b>klik batang</b> untuk lihat penyebabnya</div>
             <div id="ch-downtime-trend" class="mt-2 min-h-[300px] cursor-pointer"></div>
         </div>
         <div class="card card-pad">
             <div class="card-title">Komposisi Set Up &amp; Downtime</div>
-            <div class="card-sub">Total jam sesuai kelompok kolom di sheet DT · <b>klik</b> untuk lihat penyebabnya</div>
+            <div class="card-sub">Jam kerja = Set Up + Downtime (kolom sheet DT) + Cutting time · <b>klik</b> Set Up / Downtime untuk lihat penyebabnya</div>
             <div id="ch-downtime-cat" class="mt-2 min-h-[300px] cursor-pointer"></div>
         </div>
     </div>
 
-    {{-- Rincian penyebab saat grafik Set Up / Downtime diklik --}}
-    <div id="dt-detail" class="card" x-show="dt.open" x-cloak>
-        <div class="card-pad !pb-3 flex flex-wrap items-start gap-3 border-b" style="border-color:var(--border)">
-            <span class="w-3 h-3 rounded-full mt-1.5 shrink-0" :style="'background:' + dt.color"></span>
-            <div class="min-w-0 flex-1">
-                <div class="card-title" x-text="'Rincian ' + (dt.data?.category || dt.name) + ' · ' + dtRange()"></div>
-                <div class="card-sub" x-show="dt.data" x-text="'Total ' + num(dt.data?.total_hours, 1) + ' jam · ' + (dt.data?.reasons.length || 0) + ' penyebab (kolom sheet DT)'"></div>
-            </div>
-            <div class="seg">
-                <template x-for="c in [{ key: 'setup', name: 'Set Up' }, { key: 'downtime', name: 'Downtime' }]" :key="c.key">
-                    <button type="button" :class="dt.key === c.key && 'on'" @click="openDowntime(c.key, dt.bucket)" x-text="c.name"></button>
-                </template>
-            </div>
-            <button type="button" class="btn !h-8" x-show="dt.bucket" @click="openDowntime(dt.key, null)">Seluruh periode</button>
-            <button type="button" class="icon-btn" @click="dt.open = false" aria-label="Tutup rincian"><x-icon name="x" :size="16" /></button>
-        </div>
-        <div class="card-pad">
-            <div x-show="dt.loading" class="text-[13px]" style="color:var(--muted)">Memuat rincian…</div>
-            <div x-show="!dt.loading && dt.data && !dt.data.reasons.length" class="text-[13px]" style="color:var(--muted)">Tidak ada catatan untuk periode ini.</div>
-            <div class="grid grid-cols-1 xl:grid-cols-3 gap-5" x-show="!dt.loading && dt.data?.reasons.length">
-                <div class="xl:col-span-2">
-                    <div class="label">Penyebab (keterangan kolom Excel)</div>
-                    <div class="space-y-2 mt-1">
-                        <template x-for="r in dt.data?.reasons || []" :key="r.name">
-                            <div>
-                                <div class="flex items-baseline justify-between gap-3 text-[13px]">
-                                    <span class="font-medium min-w-0 truncate" x-text="r.name" :title="r.name"></span>
-                                    <span class="shrink-0 tabular-nums" style="color:var(--ink-2)">
-                                        <b x-text="num(r.hours, 1) + ' j'"></b> · <span x-text="num(r.share, 1) + '%'"></span>
-                                        <span style="color:var(--muted)" x-text="' · ' + r.occurrences + '× · ' + r.machines + ' mesin'"></span>
-                                    </span>
-                                </div>
-                                <div class="h-1.5 rounded-full mt-1" style="background:var(--surface-2)">
-                                    <div class="h-1.5 rounded-full" :style="`width:${Math.max(1, r.share)}%;background:${dt.color}`"></div>
-                                </div>
-                            </div>
-                        </template>
-                    </div>
-                </div>
-                <div class="space-y-4">
-                    <div>
-                        <div class="label">Mesin terbanyak</div>
-                        <table class="tbl mt-1">
-                            <tbody>
-                                <template x-for="m in dt.data?.machines || []" :key="m.code">
-                                    <tr><td x-text="m.code"></td><td class="num" x-text="num(m.hours, 1) + ' j'"></td></tr>
-                                </template>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div>
-                        <div class="label">Catatan keterangan dari Excel</div>
-                        <div class="text-[12.5px]" style="color:var(--muted)" x-show="!dt.data?.notes.length">Tidak ada catatan teks di kolom keterangan sheet DT.</div>
-                        <div class="space-y-2 mt-1 max-h-[260px] overflow-y-auto pr-1">
-                            <template x-for="(n, ni) in dt.data?.notes || []" :key="ni">
-                                <div class="rounded-lg px-3 py-2 text-[12.5px]" style="background:var(--surface-2)">
-                                    <div style="color:var(--muted)" x-text="fmtDate(n.date) + ' · S' + n.shift + ' · ' + n.machine + (n.order_no ? ' · PRO ' + n.order_no : '') + ' · ' + n.minutes + ' mnt'"></div>
-                                    <div class="mt-0.5" x-text="n.note"></div>
-                                </div>
-                            </template>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+    @include('dashboard._downtime_detail', ['anchor' => 'trend'])
 
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <div class="card card-pad">
             <div class="card-title">Pareto downtime · 10 kolom DT teratas</div>
-            <div class="card-sub">Jam downtime; arahkan kursor untuk melihat % kumulatif</div>
-            <div id="ch-downtime-pareto" class="mt-2 min-h-[340px]"></div>
+            <div class="card-sub">Jam downtime · <b>klik batang</b> untuk lihat mesinnya</div>
+            <div id="ch-downtime-pareto" class="mt-2 min-h-[340px] cursor-pointer"></div>
         </div>
         <div class="card card-pad">
             <div class="card-title">Pareto reject · 10 jenis teratas</div>
-            <div class="card-sub">Jumlah pcs reject per jenis</div>
+            <div class="card-sub">Jumlah pcs reject per jenis · nama mesin penyumbang di ujung batang</div>
             <div id="ch-defect-pareto" class="mt-2 min-h-[340px]"></div>
         </div>
     </div>
+
+    @include('dashboard._downtime_detail', ['anchor' => 'pareto'])
 
     {{-- ===================== NC / SHIFT / AREA ===================== --}}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -170,24 +129,20 @@
         </div>
         <div class="card card-pad md:col-span-2 xl:col-span-1">
             <div class="card-title">Perbandingan area</div>
-            <div class="card-sub">Hasil baik per area & gudang</div>
-            <div id="ch-area" class="mt-2 min-h-[300px]"></div>
-        </div>
-    </div>
-
-    {{-- ===================== CUTTING TIME PER MESIN ===================== --}}
-    <div class="card card-pad">
-        <div class="flex flex-wrap items-start justify-between gap-2">
-            <div>
-                <div class="card-title">Cutting time % per mesin</div>
-                <div class="card-sub">Cutting time ÷ jam kerja per mesin · hijau ≥ 85%, kuning ≥ 75%, merah &lt; 75% · garis putus-putus = rata-rata</div>
-            </div>
-            <div class="text-right" x-show="d">
-                <div class="text-[11.5px]" style="color:var(--muted)">Rata-rata</div>
-                <div class="text-[20px] font-semibold leading-tight" x-text="pct(d?.kpi.cutting_pct)"></div>
+            <div class="card-sub">Hasil per area · mesin yang berproduksi di tiap area</div>
+            <div id="ch-area" class="mt-2 min-h-[260px]"></div>
+            <div class="space-y-2 mt-1">
+                <template x-for="a in (d?.areas || [])" :key="a.area">
+                    <div class="text-[12.5px]">
+                        <div class="flex justify-between gap-2">
+                            <b x-text="a.area"></b>
+                            <span style="color:var(--muted)" x-text="a.machines.length + ' mesin · ' + short(a.ok) + ' pcs baik'"></span>
+                        </div>
+                        <div class="mt-0.5 leading-relaxed" style="color:var(--ink-2)" x-text="a.machines.map(m => m.code).join(', ')"></div>
+                    </div>
+                </template>
             </div>
         </div>
-        <div id="ch-cutting-machine" class="mt-2 min-h-[340px]"></div>
     </div>
 
     {{-- Yield SAP vs data lapangan: disembunyikan sementara (data tetap dihitung di DashboardService::sapCompare). --}}
@@ -228,8 +183,8 @@
         </div>
         <div class="card card-pad">
             <div class="card-title">Customer teratas</div>
-            <div class="card-sub">Hasil baik (pcs)</div>
-            <div id="ch-customers" class="mt-2 min-h-[380px]"></div>
+            <div class="card-sub">Hasil baik (pcs)<span x-show="cfg.customerUrl"> · <b>klik</b> untuk detail customer</span></div>
+            <div id="ch-customers" class="mt-2 min-h-[380px]" :class="cfg.customerUrl && 'cursor-pointer'"></div>
         </div>
     </div>
 

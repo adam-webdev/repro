@@ -108,6 +108,7 @@ class ReportController extends Controller
             'machine' => $report->machine?->code,
             'order' => $report->order_no,
             'customer' => $report->customer?->name,
+            'customer_url' => $report->customer_id ? route('customers.show', $report->customer_id) : null,
             'material' => $report->material?->code,
             'size' => $report->material?->size_label,
             'defects' => $report->defects->map(fn ($d) => ['name' => $d->type->name, 'qty' => $d->qty])->sortByDesc('qty')->values(),

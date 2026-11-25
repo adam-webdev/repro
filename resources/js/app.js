@@ -107,7 +107,11 @@ Alpine.data('dashboard', (cfg) => ({
     charts: {},
     sort: { key: 'ok', dir: -1 },
     reqId: 0,
-    dt: { open: false, loading: false, key: '', name: '', color: '', bucket: null, data: null, reqId: 0 },
+    dt: { open: false, loading: false, key: '', name: '', color: '', bucket: null, reason: null, machine: null, anchor: 'trend', data: null, reqId: 0 },
+    // filter area & mesin milik grafik Hasil produksi / Yield (di luar filter utama)
+    cf: { production: { area_id: '', machine_id: '' }, yield: { area_id: '', machine_id: '' } },
+    cdata: { production: null, yield: null },
+    creq: { production: 0, yield: 0 },
     presets: [
         { key: '1d', label: 'Hari terakhir' },
         { key: '7d', label: '7 hari' },
@@ -155,6 +159,7 @@ Alpine.data('dashboard', (cfg) => ({
 
     // ---------- util tampilan
     num: (v, d = 0) => fmt(v, d),
+    short: (v) => short(v),
     pct: (v) => (v === null || v === undefined) ? '-' : fmt(v, 1) + '%',
     fmtDate,
     fmtRange(r) { return r ? `${fmtDate(r[0])} – ${fmtDate(r[1])}` : ''; },
@@ -165,6 +170,33 @@ Alpine.data('dashboard', (cfg) => ({
         return cfg.machines.filter(m => (!this.f.area_id || String(m.area_id) === String(this.f.area_id)) && (!this.f.building || m.building === this.f.building));
     },
     reset() { this.f = JSON.parse(JSON.stringify(this.initial)); this.preset = '30d'; this.load(); },
+
+    // ---------- filter area & mesin per grafik
+    hasChartFilter(key) { return !!(this.cf[key].area_id || this.cf[key].machine_id); },
+    chartMachineOptions(key) {
+        const area = this.cf[key].area_id;
+        return cfg.machines.filter(m => (!area || String(m.area_id) === String(area)) && (!this.f.building || m.building === this.f.building));
+    },
+    chartScope(key) {
+        const c = this.cf[key];
+        if (c.machine_id) return 'Mesin ' + (cfg.machines.find(m => String(m.id) === String(c.machine_id))?.code || '');
+        if (c.area_id) return cfg.areas.find(a => String(a.id) === String(c.area_id))?.name || '';
+        return '';
+    },
+    chartTrend(key) { return this.hasChartFilter(key) ? (this.cdata[key] || []) : (this.d?.trend || []); },
+    renderChart(key) { return key === 'production' ? this.renderProduction() : this.renderYield(); },
+    async loadChart(key) {
+        if (!this.d) return;
+        if (!this.hasChartFilter(key)) { this.cdata[key] = null; return this.renderChart(key); }
+        const id = ++this.creq[key];
+        const c = this.cf[key];
+        const qs = new URLSearchParams(Object.entries({ ...this.f, area_id: c.area_id, machine_id: c.machine_id }).filter(([, v]) => v !== '' && v !== null));
+        const res = await fetch(cfg.trendEndpoint + '?' + qs, { headers: { Accept: 'application/json' } });
+        const data = await res.json();
+        if (id !== this.creq[key]) return;
+        this.cdata[key] = data.trend;
+        this.$nextTick(() => this.renderChart(key));
+    },
 
     applyPreset(key) {
         this.preset = key;
@@ -196,7 +228,9 @@ Alpine.data('dashboard', (cfg) => ({
             this.d = data;
             this.f.period = data.filters.period;
             this.$nextTick(() => this.renderAll());
-            if (this.dt.open) this.openDowntime(this.dt.key, null, false); // filter berubah: rincian ikut periode baru
+            ['production', 'yield'].forEach(k => this.hasChartFilter(k) && this.loadChart(k));
+            // filter berubah: rincian ikut periode baru
+            if (this.dt.open) this.openDowntime(this.dt.key, { machine: this.dt.machine, reason: this.dt.reason, anchor: this.dt.anchor, scroll: false });
         } finally {
             if (id === this.reqId) this.loading = false;
         }
@@ -256,7 +290,8 @@ Alpine.data('dashboard', (cfg) => ({
         this.renderYield();
         this.renderDowntimeTrend();
         this.renderDowntimeCat();
-        this.renderPareto('ch-downtime-pareto', this.d.downtime_pareto, 'hours', 'jam', 0);
+        this.renderPareto('ch-downtime-pareto', this.d.downtime_pareto, 'hours', 'jam', 0,
+            (r) => this.openDowntime(r.category_key, { reason: r.name, anchor: 'pareto' }));
         this.renderPareto('ch-defect-pareto', this.d.defect_pareto, 'qty', 'pcs', 0);
         this.renderNc();
         this.renderShift();
@@ -266,9 +301,12 @@ Alpine.data('dashboard', (cfg) => ({
     },
 
     renderProduction() {
-        const t = theme(), tr = this.d.trend;
+        const t = theme(), tr = this.chartTrend('production');
         if (!tr.length) return this.empty('ch-production');
         const pctMode = this.prodMode === 'pct';
+        const keys = ['ok', 'nc', 'reject'];
+        const tot = (r) => r.ok + r.nc + r.reject;
+        const step = Math.ceil(tr.length / 16); // label total dijarangkan bila batang sangat rapat
         this.draw('ch-production', base(t, {
             chart: { type: 'bar', height: 300, stacked: true, stackType: pctMode ? '100%' : 'normal' },
             series: [
@@ -277,22 +315,33 @@ Alpine.data('dashboard', (cfg) => ({
                 { name: 'Reject', data: tr.map(r => r.reject) },
             ],
             colors: [t.series[0], t.series[1], t.series[7]], // Baik biru, NC oranye, Reject merah
-            plotOptions: { bar: { columnWidth: tr.length > 20 ? '70%' : '50%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last' } },
+            plotOptions: { bar: { columnWidth: tr.length > 20 ? '70%' : '50%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last',
+                dataLabels: { total: { enabled: !pctMode, offsetY: -2, style: { fontSize: '10px', fontWeight: 600, color: t.ink2 },
+                    formatter: (v, o) => (o?.dataPointIndex ?? 0) % step === 0 ? short(v) : '' } } } },
+            // angka di dalam batang hanya bila segmennya cukup besar; NC / Reject yang kecil lihat tooltip
+            dataLabels: { enabled: true, style: { fontSize: '9.5px', fontWeight: 500, colors: ['#fff'] }, dropShadow: { enabled: false },
+                formatter: (v, o) => {
+                    const r = tr[o.dataPointIndex], all = tot(r), share = pctMode ? v : (all ? v / all * 100 : 0);
+                    if (tr.length > 31 || share < (tr.length > 14 ? 25 : 12)) return '';
+                    return pctMode ? fmt(v, 0) + '%' : short(v);
+                } },
             stroke: { show: true, width: 2, colors: [t.surface] },
             xaxis: { categories: tr.map(r => periodLabel(r.period, this.f.period)), axisBorder: { color: t.axis }, axisTicks: { show: false },
                 labels: { rotate: -45, hideOverlappingLabels: true, style: { fontSize: '11px' } } },
-            yaxis: { labels: { formatter: v => pctMode ? fmt(v, 0) + '%' : short(v) } },
+            yaxis: { max: pctMode ? 100 : niceCeil(Math.max(...tr.map(tot)) * 1.1), labels: { formatter: v => pctMode ? fmt(v, 0) + '%' : short(v) } },
             tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: (v, o) => {
-                const r = tr[o.dataPointIndex]; const tot = r.ok + r.nc + r.reject;
-                return `${fmt(v)} pcs (${fmt(tot ? v / tot * 100 : 0, 1)}%)`;
+                const r = tr[o.dataPointIndex], all = tot(r), qty = r[keys[o.seriesIndex]];
+                return `${fmt(qty)} pcs (${fmt(all ? qty / all * 100 : 0, 1)}%)`;
             } } },
         }));
     },
 
     renderYield() {
-        const t = theme(), tr = this.d.trend;
+        const t = theme(), tr = this.chartTrend('yield');
         if (!tr.length) return this.empty('ch-yield');
+        const step = Math.ceil(tr.length / 12); // angka dijarangkan bila titik sangat rapat
         const vals = tr.flatMap(r => [r.yield_sap, r.cutting_pct]).filter(v => v !== null);
+        if (!vals.length) return this.empty('ch-yield');
         this.draw('ch-yield', base(t, {
             chart: { type: 'line', height: 300 },
             series: [
@@ -301,10 +350,13 @@ Alpine.data('dashboard', (cfg) => ({
             ],
             colors: [t.series[0], t.series[2]],
             stroke: { width: 2, curve: 'smooth' },
-            markers: { size: tr.length > 20 ? 0 : 4, strokeWidth: 2, strokeColors: t.surface, hover: { size: 6 } },
+            markers: { size: tr.length > 20 ? 2 : 4, strokeWidth: 2, strokeColors: t.surface, hover: { size: 6 } },
+            dataLabels: { enabled: true, offsetY: -6, style: { fontSize: '9.5px', fontWeight: 600 },
+                background: { enabled: true, borderWidth: 0, borderRadius: 3, padding: 3, opacity: 0.9 },
+                formatter: (v, o) => v === null || (o.dataPointIndex % step !== 0 && o.dataPointIndex !== tr.length - 1) ? '' : fmt(v, 1) + '%' },
             xaxis: { categories: tr.map(r => periodLabel(r.period, this.f.period)), axisBorder: { color: t.axis }, axisTicks: { show: false },
                 labels: { rotate: -45, hideOverlappingLabels: true, style: { fontSize: '11px' } }, tickAmount: Math.min(tr.length, 10), tooltip: { enabled: false } },
-            yaxis: { min: Math.max(0, Math.floor(Math.min(...vals) / 5) * 5 - 5), max: Math.min(105, Math.ceil(Math.max(...vals) / 5) * 5 + 2),
+            yaxis: { min: Math.max(0, Math.floor(Math.min(...vals) / 5) * 5 - 5), max: Math.min(110, Math.ceil(Math.max(...vals) / 5) * 5 + 5),
                 tickAmount: 5, labels: { formatter: v => fmt(v, 0) + '%' } },
             tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: v => v === null ? '-' : fmt(v, 2) + '%' } },
         }));
@@ -314,38 +366,63 @@ Alpine.data('dashboard', (cfg) => ({
         const t = theme(), dt = this.d.downtime_trend;
         if (!dt.periods.length) return this.empty('ch-downtime-trend');
         const colorOf = this.categoryColors(t);
+        const n = dt.periods.length, bars = dt.series.length;
+        const step = Math.ceil(n / 16); // angka dijarangkan bila batang sangat rapat
+        const barMax = Math.max(...dt.periods.map((p, i) => dt.series.reduce((a, s) => a + (s.data[i] || 0), 0)));
+        const open = (si, bucket) => si < bars && this.openDowntime(dt.series[si].key, { bucket, anchor: 'trend' });
         this.draw('ch-downtime-trend', base(t, {
-            chart: { type: 'bar', height: 300, stacked: true, events: {
-                dataPointSelection: (e, ctx, o) => this.openDowntime(dt.series[o.seriesIndex].key, dt.periods[o.dataPointIndex]),
-                legendClick: (ctx, i) => this.openDowntime(dt.series[i].key, null),
+            chart: { type: 'line', height: 320, stacked: true, stackOnlyBar: true, events: {
+                dataPointSelection: (e, ctx, o) => open(o.seriesIndex, dt.periods[o.dataPointIndex]),
+                legendClick: (ctx, i) => open(i, null),
             } },
             legend: { ...base(t).legend, onItemClick: { toggleDataSeries: false } },
-            series: dt.series.map(s => ({ name: s.name, data: s.data })),
-            colors: dt.series.map(s => colorOf[s.key]),
-            plotOptions: { bar: { columnWidth: dt.periods.length > 20 ? '72%' : '50%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last' } },
-            stroke: { show: true, width: 2, colors: [t.surface] },
+            series: [
+                ...dt.series.map(s => ({ name: s.name, type: 'column', data: s.data })),
+                { name: 'Cutting time', type: 'line', data: dt.cutting || [] },
+            ],
+            colors: [...dt.series.map(s => colorOf[s.key]), colorOf.cutting],
+            plotOptions: { bar: { columnWidth: n > 20 ? '72%' : '50%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last',
+                dataLabels: { total: { enabled: true, offsetY: -2, style: { fontSize: '10px', fontWeight: 600, color: t.ink2 },
+                    formatter: (v, o) => (o?.dataPointIndex ?? 0) % step === 0 ? fmt(v, 0) : '' } } } },
+            stroke: { width: [...dt.series.map(() => 0), 2.5], curve: 'smooth' },
+            markers: { size: [...dt.series.map(() => 0), n > 20 ? 2 : 4], strokeWidth: 2, strokeColors: t.surface, hover: { size: 6 } },
+            dataLabels: { enabled: true, enabledOnSeries: [bars], offsetY: -8, style: { fontSize: '9.5px', fontWeight: 600 },
+                background: { enabled: true, borderWidth: 0, borderRadius: 3, padding: 3, opacity: 0.9 },
+                formatter: (v, o) => !v || (o.dataPointIndex % step !== 0 && o.dataPointIndex !== n - 1) ? '' : fmt(v, 0) },
             xaxis: { categories: dt.periods.map(p => periodLabel(p, this.f.period)), axisBorder: { color: t.axis }, axisTicks: { show: false },
-                labels: { rotate: -45, hideOverlappingLabels: true, style: { fontSize: '11px' } } },
-            yaxis: { labels: { formatter: v => fmt(v, 0) + ' j' } },
-            tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: v => fmt(v, 1) + ' jam' } },
+                labels: { rotate: -45, hideOverlappingLabels: true, style: { fontSize: '11px' } }, tooltip: { enabled: false } },
+            yaxis: [
+                ...dt.series.map((s, i) => ({ seriesName: dt.series[0].name, show: i === 0, min: 0, max: niceCeil(barMax * 1.15), tickAmount: 4,
+                    title: { text: 'Set Up & Downtime (jam)', style: { fontSize: '11px', fontWeight: 500, color: t.muted } }, labels: { formatter: v => fmt(v, 0) } })),
+                { seriesName: 'Cutting time', opposite: true, min: 0, max: niceCeil(Math.max(1, ...(dt.cutting || [0])) * 1.15), tickAmount: 4,
+                    title: { text: 'Cutting time (jam)', style: { fontSize: '11px', fontWeight: 500, color: t.muted } }, labels: { formatter: v => fmt(v, 0) } },
+            ],
+            tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: v => v === null || v === undefined ? '-' : fmt(v, 1) + ' jam' } },
         }));
     },
 
     categoryColors(t) {
-        return { setup: t.series[3], downtime: t.series[0] }; // kelompok sesuai sheet DT Excel
+        return { setup: t.series[3], downtime: t.series[0], cutting: t.series[2] }; // kelompok sesuai sheet DT Excel + cutting time
     },
 
-    /* Klik batang / donat Set Up & Downtime: tampilkan penyebab (kolom sheet DT), mesin & catatan keterangan. */
-    async openDowntime(key, bucket = null, scroll = true) {
+    /*
+     * Klik grafik Set Up & Downtime: tampilkan penyebab (kolom sheet DT), mesin & catatan keterangan.
+     * opts: bucket (batang tren yang diklik), reason (batang pareto = satu kolom DT), machine ({id, code}: batang cutting time per mesin),
+     * anchor (panel muncul di dekat grafik yang diklik: trend / pareto / machine).
+     */
+    async openDowntime(key, { bucket = null, reason = null, machine = null, anchor = 'trend', scroll = true } = {}) {
+        if (!['setup', 'downtime'].includes(key)) return; // cutting time tidak punya rincian penyebab
         const id = ++this.dt.reqId;
         Object.assign(this.dt, {
-            open: true, loading: true, key, bucket, data: null,
+            open: true, loading: true, key, bucket, reason, machine, anchor, data: null,
             name: { setup: 'Set Up', downtime: 'Downtime' }[key] || key, color: this.categoryColors(theme())[key],
         });
-        if (scroll) this.$nextTick(() => document.getElementById('dt-detail')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+        if (scroll) this.$nextTick(() => document.getElementById('dt-detail-' + anchor)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
         const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
         qs.set('category', key);
         if (bucket) qs.set('bucket', bucket);
+        if (reason) qs.set('reason', reason);
+        if (machine) { qs.set('machine_id', machine.id); qs.delete('area_id'); }
         try {
             const res = await fetch(cfg.detailEndpoint + '?' + qs, { headers: { Accept: 'application/json' } });
             const data = await res.json();
@@ -353,6 +430,16 @@ Alpine.data('dashboard', (cfg) => ({
         } finally {
             if (id === this.dt.reqId) this.dt.loading = false;
         }
+    },
+    dtTitle() {
+        const what = this.dt.reason || this.dt.data?.category || this.dt.name;
+        return 'Rincian ' + what + (this.dt.machine ? ' · mesin ' + this.dt.machine.code : '') + ' · ' + this.dtRange();
+    },
+    dtSub() {
+        const r = this.dt.data;
+        if (!r) return '';
+        if (this.dt.reason) return `Total ${fmt(r.total_hours, 1)} jam · ${r.machines.length} mesin · kelompok ${r.category}`;
+        return `Total ${fmt(r.total_hours, 1)} jam · ${r.reasons.length} penyebab (kolom sheet DT)`;
     },
     dtRange() {
         const r = this.dt.data;
@@ -367,40 +454,48 @@ Alpine.data('dashboard', (cfg) => ({
         const total = rows.reduce((a, r) => a + r.hours, 0);
         this.draw('ch-downtime-cat', base(t, {
             chart: { type: 'donut', height: 320, events: {
-                dataPointSelection: (e, ctx, o) => this.openDowntime(rows[o.dataPointIndex].key, null),
-                legendClick: (ctx, i) => this.openDowntime(rows[i].key, null),
+                dataPointSelection: (e, ctx, o) => this.openDowntime(rows[o.dataPointIndex].key, { anchor: 'trend' }),
+                legendClick: (ctx, i) => this.openDowntime(rows[i].key, { anchor: 'trend' }),
             } },
             series: rows.map(r => r.hours),
             labels: rows.map(r => r.name),
             colors: rows.map(r => colorOf[r.key]),
             stroke: { width: 2, colors: [t.surface] },
-            legend: { position: 'bottom', fontSize: '12px', labels: { colors: t.ink2 }, markers: { size: 5, shape: 'circle' }, onItemClick: { toggleDataSeries: false } },
-            plotOptions: { pie: { donut: { size: '68%', labels: { show: true,
+            dataLabels: { enabled: true, formatter: v => fmt(v, 1) + '%', style: { fontSize: '11px', fontWeight: 600, colors: ['#fff'] }, dropShadow: { enabled: false } },
+            legend: { position: 'bottom', fontSize: '12px', labels: { colors: t.ink2 }, markers: { size: 5, shape: 'circle' }, onItemClick: { toggleDataSeries: false },
+                formatter: (name, o) => `${name}: ${fmt(rows[o.seriesIndex].hours, 0)} j` },
+            plotOptions: { pie: { donut: { size: '62%', labels: { show: true,
                 name: { fontSize: '12px', color: t.muted },
                 value: { fontSize: '22px', fontWeight: 600, color: t.ink, formatter: v => fmt(+v, 0) + ' j' },
-                total: { show: true, label: 'Total downtime', color: t.muted, fontSize: '12px', formatter: () => fmt(total, 0) + ' j' } } } } },
+                total: { show: true, label: 'Total jam kerja', color: t.muted, fontSize: '12px', formatter: () => fmt(total, 0) + ' j' } } } } },
             tooltip: { theme: t.mode, y: { formatter: v => `${fmt(v, 1)} jam (${fmt(v / total * 100, 1)}%)` } },
         }));
     },
 
-    renderPareto(id, rows, field, unit, dec) {
+    renderPareto(id, rows, field, unit, dec, onClick = null) {
         const t = theme();
         if (!rows.length) return this.empty(id);
+        // reject: tampilkan mesin penyumbang (mis. Coaxial Over hanya di mesin swaging)
+        const machineText = (r, max) => !r.machines ? '' : r.machines.slice(0, max).map(m => m.code).join(', ') + (r.machines.length > max ? ` +${r.machines.length - max}` : '');
         this.draw(id, base(t, {
-            chart: { type: 'bar', height: 340 },
+            chart: { type: 'bar', height: 340, events: onClick ? { dataPointSelection: (e, ctx, o) => onClick(rows[o.dataPointIndex]) } : {} },
             series: [{ name: { jam: 'Downtime', mnt: 'Menit' }[unit] || 'Reject', data: rows.map(r => r[field]) }],
             colors: [t.series[0]],
             plotOptions: { bar: { horizontal: true, barHeight: '62%', borderRadius: 4, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
             dataLabels: { enabled: true, textAnchor: 'start', offsetX: 8, style: { fontSize: '11px', fontWeight: 500, colors: [t.ink2] },
-                formatter: (v, o) => `${fmt(v, dec)} ${unit} · ${fmt(rows[o.dataPointIndex].share, 0)}%` },
+                formatter: (v, o) => {
+                    const r = rows[o.dataPointIndex], m = machineText(r, 2);
+                    return `${fmt(v, dec)} ${unit} · ${fmt(r.share, 0)}%` + (m ? ` · ${m}` : '');
+                } },
             xaxis: { categories: rows.map(r => r.name), labels: { formatter: v => short(v) }, axisBorder: { show: false }, axisTicks: { show: false },
-                min: 0, max: niceCeil(Math.max(...rows.map(r => r[field])) * 1.35), tickAmount: 4 },
+                min: 0, max: niceCeil(Math.max(...rows.map(r => r[field])) * (rows[0].machines ? 1.9 : 1.35)), tickAmount: 4 },
             yaxis: { labels: { maxWidth: 190, style: { fontSize: '12px', colors: t.ink2 } } },
             grid: { borderColor: t.grid, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
             legend: { show: false },
             tooltip: { theme: t.mode, y: { formatter: (v, o) => {
                 const r = rows[o.dataPointIndex];
-                return `${fmt(v, 1)} ${unit} · ${fmt(r.share, 1)}% · kumulatif ${fmt(r.cumulative, 1)}%` + (r.category ? ` · ${r.category}` : '');
+                return `${fmt(v, 1)} ${unit} · ${fmt(r.share, 1)}% · kumulatif ${fmt(r.cumulative, 1)}%` + (r.category ? ` · ${r.category}` : '')
+                    + (r.machines ? '<br>Mesin: ' + r.machines.slice(0, 8).map(m => `${m.code} (${fmt(m.qty)})`).join(', ') + (r.machines.length > 8 ? ` +${r.machines.length - 8} lainnya` : '') : '');
             } } },
         }));
     },
@@ -445,21 +540,22 @@ Alpine.data('dashboard', (cfg) => ({
         const t = theme(), rows = this.d.areas;
         if (!rows.length) return this.empty('ch-area');
         this.draw('ch-area', base(t, {
-            chart: { type: 'bar', height: 300, stacked: true },
+            chart: { type: 'bar', height: 260, stacked: true },
             series: [
                 { name: 'Baik', data: rows.map(r => r.ok) },
                 { name: 'NC', data: rows.map(r => r.nc) },
                 { name: 'Reject', data: rows.map(r => r.reject) },
             ],
             colors: [t.series[0], t.series[1], t.series[7]], // Baik biru, NC oranye, Reject merah
-            plotOptions: { bar: { columnWidth: '52%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last' } },
+            plotOptions: { bar: { columnWidth: '52%', borderRadius: 4, borderRadiusApplication: 'end', borderRadiusWhenStacked: 'last',
+                dataLabels: { total: { enabled: true, offsetY: -2, style: { fontSize: '10.5px', fontWeight: 600, color: t.ink2 }, formatter: v => short(v) } } } },
             stroke: { show: true, width: 2, colors: [t.surface] },
-            xaxis: { categories: rows.map(r => [r.area, (r.building || '').replace('Gd ', '')]), axisBorder: { color: t.axis }, axisTicks: { show: false },
+            xaxis: { categories: rows.map(r => r.area), axisBorder: { color: t.axis }, axisTicks: { show: false },
                 labels: { style: { fontSize: '11px' } } },
             yaxis: { labels: { formatter: v => short(v) } },
             tooltip: { theme: t.mode, shared: true, intersect: false, y: { formatter: (v, o) => {
                 const r = rows[o.dataPointIndex];
-                return `${fmt(v)} pcs` + (o.seriesIndex === 0 ? ` · cutting time ${this.pct(r.cutting_pct)}` : '');
+                return `${fmt(v)} pcs` + (o.seriesIndex === 0 ? ` · cutting time ${this.pct(r.cutting_pct)} · ${r.machines.length} mesin` : '');
             } } },
         }));
     },
@@ -472,7 +568,9 @@ Alpine.data('dashboard', (cfg) => ({
         const avg = this.d.kpi?.cutting_pct;
         const color = (v) => v >= 85 ? t.series[2] : (v >= 75 ? t.series[3] : CRITICAL);
         this.draw('ch-cutting-machine', base(t, {
-            chart: { type: 'line', height: 340 },
+            chart: { type: 'line', height: 340, events: {
+                dataPointSelection: (e, ctx, o) => this.openDowntime('downtime', { machine: { id: rows[o.dataPointIndex].id, code: rows[o.dataPointIndex].code }, anchor: 'machine' }),
+            } },
             series: [
                 { name: 'Cutting time', type: 'column', data: rows.map(r => ({ x: r.code, y: r.cutting_pct, fillColor: color(r.cutting_pct) })) },
                 { name: 'Garis tren', type: 'line', data: rows.map(r => ({ x: r.code, y: r.cutting_pct })) },
@@ -494,7 +592,8 @@ Alpine.data('dashboard', (cfg) => ({
             tooltip: { theme: t.mode, shared: true, intersect: false, custom: ({ dataPointIndex: i }) => {
                 const r = rows[i];
                 return `<div class="px-3 py-2 text-[12px]"><div class="font-semibold mb-0.5">${r.code}</div>`
-                    + `Cutting time ${fmt(r.cutting_pct, 1)}%<br>Downtime ${fmt(r.downtime_hours, 1)} jam · ${r.area || '-'}</div>`;
+                    + `Cutting time ${fmt(r.cutting_pct, 1)}%<br>Downtime ${fmt(r.downtime_hours, 1)} jam · ${r.area || '-'}`
+                    + `<div class="mt-1" style="opacity:.7">Klik untuk lihat penyebab downtime</div></div>`;
             } },
         }));
     },
@@ -503,7 +602,9 @@ Alpine.data('dashboard', (cfg) => ({
         const t = theme(), rows = this.d.customers;
         if (!rows.length) return this.empty('ch-customers');
         this.draw('ch-customers', base(t, {
-            chart: { type: 'bar', height: 380 },
+            chart: { type: 'bar', height: 380, events: cfg.customerUrl ? {
+                dataPointSelection: (e, ctx, o) => { location.href = cfg.customerUrl.replace('__ID__', rows[o.dataPointIndex].id); },
+            } : {} },
             series: [{ name: 'Hasil baik', data: rows.map(r => r.qty) }],
             colors: [t.series[0]],
             plotOptions: { bar: { horizontal: true, barHeight: '60%', borderRadius: 4, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
@@ -683,35 +784,46 @@ Alpine.data('monitoringDaily', (cfg) => ({
         }));
     },
 
-    /* 6. Bar Act/Std % per mesin (hijau >= target, merah < target) + lingkaran NG rate % di dasar batang */
+    /*
+     * 6. Actual vs Planning (pcs, batang) per mesin + garis Efficiency % (sumbu kanan).
+     * Planning = qty planning Form Evaluasi; efficiency = actual ÷ std output (titik hijau ≥ target, merah < target).
+     */
     renderEfficiency() {
         const t = boardTheme(), rows = this.d.machines;
         if (!rows.length) return this.empty('ch-md-eff', undefined, 300);
-        const eff = rows.map(r => r.efficiency ?? 0);
-        const max = niceCeil(Math.max(100, ...eff) * 1.12);
-        const bottom = max * 0.05; // posisi lingkaran NG rate di dasar batang
+        const pcsMax = niceCeil(Math.max(1, ...rows.map(r => Math.max(r.pcs, r.planned_qty || 0))) * 1.15);
+        const effMax = niceCeil(Math.max(100, ...rows.map(r => r.efficiency ?? 0)) * 1.12);
+        const effColor = (r) => r.efficiency === null ? t.muted : (r.efficiency >= r.target_efficiency ? t.good : t.bad);
         this.draw('ch-md-eff', base(t, {
             chart: { type: 'line', height: 310, toolbar: { show: false } },
             series: [
-                { name: 'Act/Std', type: 'column', data: rows.map(r => ({ x: r.code, y: r.efficiency ?? 0,
-                    fillColor: (r.efficiency ?? 0) >= r.target_efficiency ? t.good : t.bad })) },
-                { name: 'NG Rate %', type: 'line', data: rows.map(r => ({ x: r.code, y: bottom })) },
+                { name: 'Actual', type: 'column', data: rows.map(r => r.pcs) },
+                { name: 'Planning', type: 'column', data: rows.map(r => r.planned_qty || null) },
+                { name: 'Efficiency', type: 'line', data: rows.map(r => r.efficiency) },
             ],
-            colors: [t.good, t.pink],
-            stroke: { width: [0, 0] },
-            markers: { size: [0, 9], strokeWidth: 2, strokeColors: t.surface, colors: [t.pink], hover: { size: 10 } },
-            plotOptions: { bar: { columnWidth: '60%', borderRadius: 3, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
-            dataLabels: { enabled: true, offsetY: -6, formatter: (v, o) => o.seriesIndex === 0 ? fmt(v, 0) + '%' : fmt(rows[o.dataPointIndex].ng_rate, 1) + '%',
-                style: { fontSize: '9.5px', fontWeight: 600, colors: [t.ink, t.pink] }, background: { enabled: false } },
-            xaxis: { type: 'category', axisBorder: { color: t.axis }, axisTicks: { show: false },
+            colors: [t.teal, t.blue, t.gold],
+            stroke: { width: [0, 0, 2], curve: 'straight' },
+            markers: { size: [0, 0, 5], strokeWidth: 2, strokeColors: t.surface, hover: { size: 7 },
+                discrete: rows.map((r, i) => ({ seriesIndex: 2, dataPointIndex: i, fillColor: effColor(r), strokeColor: t.surface, size: 5 })) },
+            plotOptions: { bar: { columnWidth: '70%', borderRadius: 3, borderRadiusApplication: 'end', dataLabels: { position: 'top' } } },
+            dataLabels: { enabled: true, enabledOnSeries: [0, 1, 2], offsetY: -6,
+                formatter: (v, o) => v === null || v === undefined ? '' : (o.seriesIndex === 2 ? fmt(v, 0) + '%' : short(v)),
+                style: { fontSize: '9px', fontWeight: 600, colors: [t.ink, t.ink2, t.gold] }, background: { enabled: false } },
+            xaxis: { categories: rows.map(r => r.code), axisBorder: { color: t.axis }, axisTicks: { show: false }, tooltip: { enabled: false },
                 labels: { rotate: -45, rotateAlways: rows.length > 8, style: { fontSize: '10px' } } },
-            yaxis: { min: 0, max, tickAmount: 4, labels: { formatter: v => fmt(v, 0) + '%', style: { fontSize: '10px' } } },
+            yaxis: [
+                { seriesName: 'Actual', min: 0, max: pcsMax, tickAmount: 4, labels: { formatter: v => short(v), style: { fontSize: '10px' } } },
+                { seriesName: 'Actual', show: false, min: 0, max: pcsMax },
+                { seriesName: 'Efficiency', opposite: true, min: 0, max: effMax, tickAmount: 4, labels: { formatter: v => fmt(v, 0) + '%', style: { fontSize: '10px' } } },
+            ],
             legend: { position: 'bottom', horizontalAlign: 'center', fontSize: '11px', labels: { colors: t.ink2 }, markers: { size: 4 } },
             tooltip: { theme: t.mode, shared: true, intersect: false, custom: ({ dataPointIndex: i }) => {
                 const r = rows[i];
                 return `<div class="px-3 py-2 text-[12px]"><div class="font-semibold mb-0.5">${r.code}</div>`
-                    + `Act/Std ${r.efficiency === null ? '-' : fmt(r.efficiency, 1) + '%'} (target ${fmt(r.target_efficiency, 0)}%)<br>`
-                    + `NG rate ${fmt(r.ng_rate, 2)}% · ${fmt(r.ng)} dari ${fmt(r.pcs)} pcs</div>`;
+                    + `Actual ${fmt(r.pcs)} pcs · Planning ${r.planned_qty ? fmt(r.planned_qty) + ' pcs' : 'belum ada'}`
+                    + (r.productivity !== null && r.productivity !== undefined ? ` (${fmt(r.productivity, 0)}%)` : '') + '<br>'
+                    + `Efficiency ${r.efficiency === null ? '-' : fmt(r.efficiency, 1) + '%'} (target ${fmt(r.target_efficiency, 0)}%)<br>`
+                    + `NG rate ${fmt(r.ng_rate, 2)}% · ${fmt(r.ng)} pcs</div>`;
             } },
         }));
     },

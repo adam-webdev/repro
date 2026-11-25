@@ -79,7 +79,7 @@
                         <td><span class="chip chip-muted">S{{ $r->shift }}</span></td>
                         <td class="font-medium">{{ $r->machine?->code }}</td>
                         <td><a href="{{ route('orders.show', $r->order_no) }}" class="underline underline-offset-2">{{ $r->order_no }}</a></td>
-                        <td class="max-w-[180px] truncate">{{ $r->customer?->name ?? '-' }}</td>
+                        <td class="max-w-[180px] truncate">@if ($r->customer)<a href="{{ route('customers.show', $r->customer_id) }}" class="underline underline-offset-2">{{ $r->customer->name }}</a>@else-@endif</td>
                         <td>
                             <div class="font-mono text-[12px]">{{ $r->material?->code ?? '-' }}</div>
                             <div class="text-[11.5px]" style="color:var(--muted)">{{ $r->material?->size_label }}</div>
@@ -120,7 +120,7 @@
                 <div class="space-y-4 text-[13.5px]">
                     <div class="card card-pad !py-3">
                         <div><b x-text="r.machine"></b> · <span x-text="r.date"></span> · Shift <span x-text="r.shift"></span></div>
-                        <div class="mt-1" style="color:var(--ink-2)">Order <b x-text="r.order"></b> · <span x-text="r.customer || '-'"></span></div>
+                        <div class="mt-1" style="color:var(--ink-2)">Order <b x-text="r.order"></b> · <template x-if="r.customer_url"><a :href="r.customer_url" class="underline underline-offset-2" x-text="r.customer"></a></template><span x-show="!r.customer_url">-</span></div>
                         <div class="font-mono text-[12px] mt-1" x-text="r.material"></div>
                         <div class="text-[12px]" style="color:var(--muted)" x-text="r.size"></div>
                     </div>

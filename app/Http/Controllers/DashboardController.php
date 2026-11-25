@@ -33,9 +33,18 @@ class DashboardController extends Controller
         $request->validate([
             'category' => ['required', Rule::in(array_keys(config('production.downtime_categories')))],
             'bucket' => 'nullable|date',
+            'reason' => 'nullable|string|max:191',
         ]);
 
-        return response()->json($service->downtimeDetail($service->filters($request->all()), $request->string('category'), $request->input('bucket')));
+        return response()->json($service->downtimeDetail(
+            $service->filters($request->all()), $request->string('category'), $request->input('bucket'), $request->input('reason'),
+        ));
+    }
+
+    /** Tren hasil produksi / yield dengan filter area & mesin milik grafik itu sendiri. */
+    public function trend(Request $request, DashboardService $service): JsonResponse
+    {
+        return response()->json($service->trendData($service->filters($request->all())));
     }
 
     /** Monitoring Karu (layout Monitoring Daily): murni dari Form Produksi karu. */

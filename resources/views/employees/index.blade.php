@@ -15,7 +15,7 @@
 
     <form method="GET" class="card card-pad !py-3 flex flex-wrap items-end gap-2.5">
         <label class="block flex-1 min-w-[200px]"><span class="label">Cari</span>
-            <input name="q" value="{{ request('q') }}" class="input w-full" placeholder="Nama, kode, ID card, username"></label>
+            <input name="q" value="{{ request('q') }}" class="input w-full" placeholder="Nama, kode, username"></label>
         <label class="block"><span class="label">Role</span>
             <select name="role" class="input">
                 <option value="">Semua</option>
@@ -35,7 +35,7 @@
     <div class="card overflow-hidden">
         <div class="overflow-x-auto">
             <table class="tbl">
-                <thead><tr><th>Kode</th><th>Nama</th><th>Jabatan</th><th>ID Card</th><th>JK</th><th>Akun</th><th>Role</th><th>Status</th><th>Login terakhir</th><th></th></tr></thead>
+                <thead><tr><th>Kode</th><th>Nama</th><th>Jabatan</th><th>Akun</th><th>Role</th><th>Status</th><th>Login terakhir</th><th></th></tr></thead>
                 <tbody>
                 @forelse ($employees as $e)
                     @php $u = $e->user; @endphp
@@ -43,8 +43,6 @@
                         <td class="font-medium">{{ $e->code ?? '–' }}</td>
                         <td><x-user-link :employee="$e->id" :name="$e->name" /></td>
                         <td>{{ $e->position ?? '–' }}</td>
-                        <td>{{ $e->id_card ?? '–' }}</td>
-                        <td>{{ $e->gender ?? '–' }}</td>
                         <td>{{ $u?->username ?? '–' }}</td>
                         <td>@if ($u)<span class="chip chip-muted">{{ $u->roleLabel() }}</span>@else<span style="color:var(--muted)">Belum punya akun</span>@endif</td>
                         <td>
@@ -52,7 +50,6 @@
                             @elseif (! $u)<span style="color:var(--muted)">–</span>
                             @elseif ($u->is_active)<span class="chip chip-ok">Aktif</span>
                             @else<span class="chip chip-crit">Nonaktif</span>@endif
-                            @if ($u?->must_change_password)<span class="chip chip-warn" title="Masih memakai password awal">Password awal</span>@endif
                         </td>
                         <td style="color:var(--muted)">{{ $u?->last_login_at?->format('d/m/Y H:i') ?? '–' }}</td>
                         <td class="num">
@@ -64,7 +61,7 @@
                         </td>
                     </tr>
                 @empty
-                    <tr><td colspan="10" class="text-center py-8" style="color:var(--muted)">Tidak ada data.</td></tr>
+                    <tr><td colspan="8" class="text-center py-8" style="color:var(--muted)">Tidak ada data.</td></tr>
                 @endforelse
                 </tbody>
             </table>

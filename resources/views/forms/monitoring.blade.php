@@ -34,9 +34,9 @@
     </div>
 
     <div class="md-board space-y-3">
-        {{-- ===================== BARIS 1 ===================== --}}
-        <div class="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-12 gap-3">
-            <div class="md-tile 2xl:col-span-4">
+        {{-- ===================== BARIS 1: KPI & produksi 1 bulan ===================== --}}
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="md-tile">
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <span class="md-pill gold" x-text="d ? d.group_label.toUpperCase() : '—'"></span>
                     <span class="md-pill date"><x-icon name="calendar-days" :size="15" /><span x-text="shortDate(f.date)"></span></span>
@@ -59,21 +59,16 @@
                 </div>
             </div>
 
-            <div class="md-tile 2xl:col-span-4">
+            <div class="md-tile">
                 <div class="flex items-start justify-between gap-2">
                     <span class="md-pill" x-text="'Produksi ' + groupShort() + ' ' + (d?.month.label || '')"></span>
                     <div class="md-big" x-text="d ? num(d.month.total_pcs) : '—'"></div>
                 </div>
                 <div id="ch-md-month" class="mt-1 min-h-[200px]"></div>
             </div>
-
-            <div class="md-tile 2xl:col-span-4">
-                <span class="md-pill" x-text="'Set up & downtime ' + groupShort() + ' ' + (d?.month.label || '')"></span>
-                <div id="ch-md-loss" class="mt-1 min-h-[200px]"></div>
-            </div>
         </div>
 
-        {{-- ===================== BARIS 2 ===================== --}}
+        {{-- ===================== BARIS 2: produksi, actual / planning, NG per mesin ===================== --}}
         <div class="grid grid-cols-1 xl:grid-cols-12 gap-3">
             <div class="md-tile xl:col-span-5">
                 <div class="flex items-start justify-between gap-2">
@@ -83,16 +78,22 @@
                 <div id="ch-md-production" class="mt-1 min-h-[300px]"></div>
             </div>
             <div class="md-tile xl:col-span-4">
-                <span class="md-pill teal">Std / Act &amp; efficiency</span>
+                <span class="md-pill">Actual / Planning &amp; efficiency</span>
                 <div id="ch-md-eff" class="mt-1 min-h-[300px]"></div>
             </div>
             <div class="md-tile xl:col-span-3">
-                <span class="md-pill pink">NG tertinggi</span>
+                <span class="md-pill">NG tertinggi</span>
                 <div id="ch-md-ng" class="mt-1 min-h-[300px]"></div>
             </div>
         </div>
 
-        {{-- ===================== BARIS 3: tabel downtime per mesin ===================== --}}
+        {{-- ===================== BARIS 3: set up & downtime per tanggal ===================== --}}
+        <div class="md-tile">
+            <span class="md-pill" x-text="'Set up & downtime ' + groupShort() + ' ' + (d?.month.label || '')"></span>
+            <div id="ch-md-loss" class="mt-1 min-h-[200px]"></div>
+        </div>
+
+        {{-- ===================== BARIS 4: tabel downtime per mesin ===================== --}}
         <div class="flex flex-wrap gap-3 items-start">
             <template x-for="m in (d?.machines || [])" :key="m.machine_id">
                 <div class="md-card">
