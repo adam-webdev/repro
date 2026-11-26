@@ -52,8 +52,8 @@
     {{-- ===================== HASIL & YIELD ===================== --}}
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <div class="card card-pad">
-            <div class="flex items-start justify-between gap-3">
-                <div>
+            <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
                     <div class="card-title">Hasil produksi</div>
                     <div class="card-sub">Baik, NC, dan Reject (pcs) per <span x-text="periodLabel()"></span><span x-show="chartScope('production')" x-text="' · ' + chartScope('production')"></span></div>
                 </div>
@@ -165,7 +165,7 @@
                     </tr></thead>
                     <tbody>
                     <template x-for="m in sortedMachines()" :key="m.id">
-                        <tr class="cursor-pointer" @click="f.machine_id = String(m.id); load()">
+                        <tr class="cursor-pointer" @click="f.machine_ids = [String(m.id)]; load()" title="Klik untuk tampilkan mesin ini saja">
                             <td class="font-medium" x-text="m.code"></td>
                             <td x-text="m.area || '-'"></td>
                             <td class="num" x-text="num(m.ok)"></td>
@@ -173,7 +173,6 @@
                             <td class="num" x-text="pct(m.reject_pct)"></td>
                             <td class="num" x-text="num(m.downtime_hours)"></td>
                             <td class="num"><span class="chip" :class="badge(m.cutting_pct, 85, 75)" x-text="pct(m.cutting_pct)"></span></td>
-                            <td class="num" x-text="pct(m.achievement)"></td>
                             <td class="num" x-text="pct(m.yield_sap)"></td>
                         </tr>
                     </template>

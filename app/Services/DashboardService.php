@@ -33,8 +33,26 @@ class DashboardService
             'shift' => in_array((int) ($in['shift'] ?? 0), [1, 2, 3], true) ? (int) $in['shift'] : null,
             'area_id' => ! empty($in['area_id']) ? (int) $in['area_id'] : null,
             'building' => ! empty($in['building']) ? (string) $in['building'] : null,
-            'machine_id' => ! empty($in['machine_id']) ? (int) $in['machine_id'] : null,
+            'machine_ids' => self::machineIds($in),
         ];
+    }
+
+    /**
+     * Mesin yang dibandingkan: machine_ids (ceklis, array atau "1,2,3"). machine_id tunggal (klik batang / filter grafik)
+     * menggantikan pilihan ceklis.
+     *
+     * @param  array<string, mixed>  $in
+     * @return list<int>
+     */
+    private static function machineIds(array $in): array
+    {
+        if (! empty($in['machine_id'])) {
+            return [(int) $in['machine_id']];
+        }
+        $ids = $in['machine_ids'] ?? [];
+        $ids = is_array($ids) ? $ids : explode(',', (string) $ids);
+
+        return collect($ids)->map(fn ($id) => (int) $id)->filter()->unique()->sort()->values()->take(100)->all();
     }
 
     public function data(array $f): array
@@ -77,7 +95,7 @@ class DashboardService
             ->when($f['shift'], fn ($q) => $q->where("$alias.shift", $f['shift']))
             ->when($f['area_id'], fn ($q) => $q->where("$alias.area_id", $f['area_id']))
             ->when($f['building'], fn ($q) => $q->where("$alias.building", $f['building']))
-            ->when($f['machine_id'], fn ($q) => $q->where("$alias.machine_id", $f['machine_id']))
+            ->when($f['machine_ids'], fn ($q) => $q->whereIn("$alias.machine_id", $f['machine_ids']))
             ->when($table === 'production_reports', fn ($q) => $q->whereNull("$alias.deleted_at"));
     }
 
@@ -382,9 +400,9 @@ class DashboardService
             ->leftJoin('materials as mt', 'mt.id', '=', 'o.material_id')
             ->whereBetween('o.last_date', [$f['from'], $f['to']])
             ->whereNotNull('s.gr_percent')->where('o.gi_mm', '>', 0);
-        if ($f['machine_id'] || $f['area_id'] || $f['building'] || $f['shift']) {
+        if ($f['machine_ids'] || $f['area_id'] || $f['building'] || $f['shift']) {
             $q->whereExists(fn ($e) => $e->from('production_reports as r')->whereColumn('r.production_order_id', 'o.id')->whereNull('r.deleted_at')
-                ->when($f['machine_id'], fn ($x) => $x->where('r.machine_id', $f['machine_id']))
+                ->when($f['machine_ids'], fn ($x) => $x->whereIn('r.machine_id', $f['machine_ids']))
                 ->when($f['area_id'], fn ($x) => $x->where('r.area_id', $f['area_id']))
                 ->when($f['building'], fn ($x) => $x->where('r.building', $f['building']))
                 ->when($f['shift'], fn ($x) => $x->where('r.shift', $f['shift'])));

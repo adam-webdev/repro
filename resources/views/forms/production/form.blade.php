@@ -1,4 +1,4 @@
-<x-layouts.app :title="$form ? 'Edit Form Produksi' : 'Isi Form Produksi'">
+<x-layouts.app :title="$form ? 'Edit Form Rekapan' : 'Isi Form Rekapan'">
 @php
     $areas = \App\Models\Area::orderBy('name')->get(['id', 'name']);
     $cfg = [
@@ -8,6 +8,7 @@
         'action' => $form ? route('forms.production.update', $form) : route('forms.production.store'),
         'method' => $form ? 'PUT' : 'POST',
         'uploadUrl' => route('attachments.store'),
+        'karu' => \App\Services\KaruFormService::headerContext(auth()->user(), $form),
     ];
 @endphp
 <div class="karu max-w-3xl mx-auto space-y-4" x-data="productionForm(@js($cfg))">
@@ -16,8 +17,8 @@
 
     <div class="alert alert-info text-[13px]">
         <x-icon name="info" :size="16" />
-        <span>Kolom bertanda <b>*</b> wajib diisi. Yang boleh dikosongkan hanya <b>Hasil 2nd grade</b>, <b>Hasil NC</b>, <b>Keterangan</b> dan foto.
-            Set Up / Bongkar / Downtime diisi bila ada, dan menitnya wajib.</span>
+        <span>Kolom bertanda <b>*</b> wajib diisi. Yang boleh dikosongkan hanya <b>Hasil 2nd grade</b>, <b>Hasil NC</b>, <b>Keterangan</b> dan foto (opsional).
+            <b>Start jam &amp; qty planning</b> dipakai untuk Productivity di Monitoring Karu. Set Up / Bongkar / Downtime diisi bila ada, dan menitnya wajib.</span>
     </div>
 
     <template x-for="(it, i) in f.items" :key="i">
@@ -64,12 +65,24 @@
                             <span class="field-err" x-text="err(`items.${i}.dimension`)"></span>
                         </label>
                         <div class="grid grid-cols-2 gap-3">
-                            <label class="block">
+                            <label class="block min-w-0">
+                                <span class="label">Start jam planning *</span>
+                                <input type="time" class="input" x-model="it.planned_start" :class="err(`items.${i}.planned_start`) && 'is-invalid'" :data-error="err(`items.${i}.planned_start`) ? 1 : null">
+                                <span class="field-err" x-text="err(`items.${i}.planned_start`)"></span>
+                            </label>
+                            <label class="block min-w-0">
+                                <span class="label">Qty planning (pcs) *</span>
+                                <input type="number" inputmode="numeric" min="0" class="input" x-model="it.planned_qty" :class="err(`items.${i}.planned_qty`) && 'is-invalid'" :data-error="err(`items.${i}.planned_qty`) ? 1 : null">
+                                <span class="field-err" x-text="err(`items.${i}.planned_qty`)"></span>
+                            </label>
+                        </div>
+                        <div class="grid grid-cols-2 gap-3">
+                            <label class="block min-w-0">
                                 <span class="label">Waktu kerja (mnt) *</span>
                                 <input type="number" inputmode="numeric" min="0" class="input" x-model="it.working_minutes" :class="err(`items.${i}.working_minutes`) && 'is-invalid'" :data-error="err(`items.${i}.working_minutes`) ? 1 : null">
                                 <span class="field-err" x-text="err(`items.${i}.working_minutes`)"></span>
                             </label>
-                            <label class="block">
+                            <label class="block min-w-0">
                                 <span class="label">Cutting time (mnt) *</span>
                                 <input type="number" inputmode="numeric" min="0" class="input" x-model="it.cutting_minutes" :class="err(`items.${i}.cutting_minutes`) && 'is-invalid'" :data-error="err(`items.${i}.cutting_minutes`) ? 1 : null">
                                 <span class="field-err" x-text="err(`items.${i}.cutting_minutes`)"></span>
@@ -91,12 +104,8 @@
                                 <span class="text-[12px]" style="color:var(--muted)" x-show="p.kind === 'dt'" x-text="'Opsi untuk ' + (cfg.machineTypes.find(t => t.key === (it.machine_type || 'umum'))?.label || '')"></span>
                                 <button type="button" class="ml-auto text-[12.5px] font-medium" style="color:var(--bad)" @click="it.problems.splice(j, 1)">Hapus</button>
                             </div>
-                            <div class="grid grid-cols-[1fr_96px] gap-2">
-                                <select class="input" x-model="p.option_id" :class="err(`items.${i}.problems.${j}.option_id`) && 'is-invalid'" :data-error="err(`items.${i}.problems.${j}.option_id`) ? 1 : null">
-                                    <option value="" x-text="p.kind === 'dt' ? 'Pilih keterangan DT' : 'Pilih ' + kindLabel(p.kind)"></option>
-                                    <template x-for="o in problemOptions(it, p.kind)" :key="o.id"><option :value="o.id" x-text="o.label" :selected="String(o.id) === String(p.option_id)"></option></template>
-                                    <option value="other" :selected="p.option_id === 'other'" x-show="p.kind !== 'bongkar'">Lainnya (isi manual)</option>
-                                </select>
+                            <div class="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
+                                @include('forms.production._option_search')
                                 <input type="number" inputmode="numeric" min="0" class="input" x-model="p.minutes" placeholder="Menit *" aria-label="Menit"
                                        :class="err(`items.${i}.problems.${j}.minutes`) && 'is-invalid'" :data-error="err(`items.${i}.problems.${j}.minutes`) ? 1 : null">
                             </div>
@@ -142,8 +151,8 @@
 
     <button type="button" class="btn w-full !h-12 !text-[14.5px]" style="border-style:dashed" @click="addItem()"><x-icon name="plus" :size="16" />Tambah PRO (ganti PRO / mesin lain)</button>
 
-    <div class="sticky-bar -mx-4 lg:-mx-6 px-4 lg:px-6 py-3 flex items-center gap-3">
-        <span class="text-[13px] flex-1 min-w-0" :style="message && 'color:var(--bad)'"
+    <div class="sticky-bar -mx-4 lg:-mx-6 px-4 lg:px-6 py-3 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <span class="text-[13px] flex-1 min-w-[150px]" :style="message && 'color:var(--bad)'"
               x-text="message || (uploading ? `Mengunggah ${uploading} foto…` : `${f.items.length} PRO di form ini`)"></span>
         <a href="{{ $form ? route('forms.production.show', $form) : route('forms.production.index') }}" class="btn">Batal</a>
         <button type="button" class="btn btn-primary !px-6" :disabled="saving || uploading > 0" @click="save()">

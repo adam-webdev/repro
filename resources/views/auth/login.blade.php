@@ -21,7 +21,7 @@
 
     {{-- Foto --}}
     <div class="relative h-48 sm:h-60 lg:h-auto lg:min-h-[620px]">
-        <img src="{{ asset('brand/login-photo.webp') }}" alt="Jalur pipa di area produksi"
+        <img src="{{ asset('login-photo1.webp') }}" alt="Jalur pipa di area produksi"
              class="absolute inset-0 w-full h-full object-cover" draggable="false">
         <div class="absolute inset-x-0 bottom-0 h-2/3" style="background:linear-gradient(to top, rgba(10,12,16,.72), rgba(10,12,16,0))"></div>
         <div class="absolute left-5 right-5 bottom-5 sm:left-8 sm:bottom-7 text-white">

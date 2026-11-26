@@ -7,11 +7,11 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Monitoring Karu (layout "Monitoring Daily"): murni dari Form Produksi yang diisi Kepala Regu.
+ * Monitoring Karu (layout "Monitoring Daily"): murni dari Form Rekapan yang diisi Kepala Regu.
  *
  * Sumber data:
- *  - evaluation_checks (Form Evaluasi): start jam planning & qty planning per mesin
- *  - production_forms (form_date, shift) + production_form_items (mesin, waktu kerja, cutting time, std output, OK / 2nd grade / NG)
+ *  - production_forms (form_date, shift) + production_form_items (mesin, start jam & qty planning, waktu kerja, cutting time,
+ *    std output, OK / 2nd grade / NG) — Form Rekapan
  *  - production_form_problems (kind setup|dt, menit) — 1 baris = 1 kejadian (FREQ)
  *  - machines (type = grup mesin dari awalan kode, target_efficiency, daily_target_pcs)
  *
@@ -105,7 +105,7 @@ class MonitoringDailyService
         return $stdPcs > 0 ? round($pcsWithStd / $stdPcs * 100, 1) : null;
     }
 
-    /** PRODUCTIVITY (%) = total pcs ÷ qty planning (Form Evaluasi) × 100. */
+    /** PRODUCTIVITY (%) = total pcs ÷ qty planning (Form Rekapan) × 100. */
     public static function productivity(float $pcs, float $plannedQty): ?float
     {
         return $plannedQty > 0 ? round($pcs / $plannedQty * 100, 1) : null;
@@ -187,22 +187,18 @@ class MonitoringDailyService
             ]);
     }
 
-    /**
-     * Planning dari Form Evaluasi. Satu pekerjaan = form + mesin + start planning + customer + dimensi;
-     * baris cek per jam untuk pekerjaan yang sama tidak dijumlah dua kali (diambil qty terbesar).
-     */
+    /** Planning dari Form Rekapan: start jam & qty planning per PRO (satu baris item = satu pekerjaan). */
     private function planning(string $from, string $to, array $f): Collection
     {
-        return DB::table('evaluation_checks as c')
-            ->join('evaluation_forms as f', 'f.id', '=', 'c.evaluation_form_id')
-            ->join('machines as m', 'm.id', '=', 'c.machine_id')
+        return DB::table('production_form_items as i')
+            ->join('production_forms as f', 'f.id', '=', 'i.production_form_id')
+            ->join('machines as m', 'm.id', '=', 'i.machine_id')
             ->whereNull('f.deleted_at')
             ->whereBetween('f.form_date', [$from, $to])
-            ->where(fn ($q) => $q->whereNotNull('c.planned_qty')->orWhereNotNull('c.planned_start'))
+            ->where(fn ($q) => $q->whereNotNull('i.planned_qty')->orWhereNotNull('i.planned_start'))
             ->when($f['group'], fn ($q) => $q->where('m.type', $f['group']))
             ->when($f['shift'], fn ($q) => $q->where('f.shift', $f['shift']))
-            ->groupBy('f.id', 'f.form_date', 'c.machine_id', 'm.code', 'm.target_efficiency', 'c.planned_start', 'c.customer_id', 'c.dimension')
-            ->selectRaw('f.form_date, c.machine_id, m.code, m.target_efficiency, c.planned_start, MAX(c.planned_qty) qty')
+            ->select('f.form_date', 'i.machine_id', 'm.code', 'm.target_efficiency', 'i.planned_start', 'i.planned_qty as qty')
             ->get()
             ->map(fn ($r) => (object) [
                 'date' => substr((string) $r->form_date, 0, 10),
@@ -235,8 +231,8 @@ class MonitoringDailyService
 
     /**
      * Per tanggal dalam bulan: total pcs, target harian, menit setup & downtime.
-     * Target harian = Σ per mesin: qty planning (Form Evaluasi); jika tidak ada planning → daily_target_pcs mesin;
-     * jika kosong juga → Std Output × waktu kerja dari Form Produksi.
+     * Target harian = Σ per mesin: qty planning (Form Rekapan); jika tidak ada planning → daily_target_pcs mesin;
+     * jika kosong juga → Std Output × waktu kerja dari Form Rekapan.
      *
      * @return list<array{date: string, day: int, pcs: int, target: ?int, setup: int, downtime: int}>
      */
@@ -282,7 +278,7 @@ class MonitoringDailyService
         $itemsByMachine = $items->groupBy('machine_id');
         $planByMachine = $planning->groupBy('machine_id');
 
-        // Mesin yang punya Form Produksi atau planning; yang belum ada datanya tampil 0.
+        // Mesin yang punya Form Rekapan atau planning; yang belum ada datanya tampil 0.
         $ids = $itemsByMachine->keys()->merge($planByMachine->keys())->unique();
 
         return $ids->map(function (int $machineId) use ($itemsByMachine, $planByMachine, $probByMachine, $defaultTarget) {

@@ -1,9 +1,9 @@
-<x-layouts.app title="Form Produksi">
+<x-layouts.app title="Form Rekapan">
 @php
     $n = fn ($v, $d = 0, $unit = '') => $v === null ? '–' : number_format((float) $v, $d, ',', '.').$unit;
 @endphp
 <div class="max-w-4xl mx-auto space-y-4">
-    @include('forms._show_header', ['kind' => 'Form Produksi', 'editRoute' => 'forms.production.edit', 'deleteRoute' => 'forms.production.destroy'])
+    @include('forms._show_header', ['kind' => 'Form Rekapan', 'editRoute' => 'forms.production.edit', 'deleteRoute' => 'forms.production.destroy'])
 
     @foreach ($form->items as $i => $it)
         @php
@@ -21,7 +21,7 @@
             </div>
             <div class="px-5 pb-5 space-y-4">
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                    @foreach ([['Waktu kerja', $n($it->working_minutes, 0, ' mnt')], ['Cutting time', $n($it->cutting_minutes, 0, ' mnt')], ['Std output', $n($it->std_output, 1, ' pcs/j')], ['Act output', $n($it->act_output, 1, ' pcs/j')], ['Hasil OK', $n($it->ok_qty, 0, ' pcs')], ['2nd grade', $n($it->second_grade_qty, 0, ' pcs')], ['NC', $n($it->nc_qty, 0, ' pcs')], ['Capaian', $it->std_output && $it->act_output ? $n($it->act_output / $it->std_output * 100, 1).'%' : '–']] as [$l, $v])
+                    @foreach ([['Start planning', $it->planned_start ? substr($it->planned_start, 0, 5) : '–'], ['Qty planning', $n($it->planned_qty, 0, ' pcs')], ['Waktu kerja', $n($it->working_minutes, 0, ' mnt')], ['Cutting time', $n($it->cutting_minutes, 0, ' mnt')], ['Std output', $n($it->std_output, 1, ' pcs/j')], ['Act output', $n($it->act_output, 1, ' pcs/j')], ['Hasil OK', $n($it->ok_qty, 0, ' pcs')], ['2nd grade', $n($it->second_grade_qty, 0, ' pcs')], ['NC', $n($it->nc_qty, 0, ' pcs')], ['Capaian', $it->std_output && $it->act_output ? $n($it->act_output / $it->std_output * 100, 1).'%' : '–']] as [$l, $v])
                         <div class="rounded-xl px-3 py-2.5" style="background:var(--surface-2)">
                             <div class="text-[11.5px]" style="color:var(--muted)">{{ $l }}</div>
                             <div class="text-[15px] font-semibold mt-0.5">{{ $v }}</div>

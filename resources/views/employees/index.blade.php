@@ -3,6 +3,11 @@
         <a href="{{ route('employees.create') }}" class="btn btn-primary"><x-icon name="plus" :size="16" /><span class="hidden sm:inline">Tambah karyawan</span></a>
     </x-slot:actions>
 <div class="space-y-4">
+    @if ($inactiveSubstitutes)
+        <a href="{{ route('employees.index', ['status' => 'nonaktif', 'role' => 'karu']) }}" class="alert alert-info text-[13.5px] flex items-center gap-2">
+            <x-icon name="info" :size="16" /><span><b>{{ $inactiveSubstitutes }} akun karu pengganti</b> masih nonaktif. Tekan <b>Aktifkan</b> saat dia bertugas.</span>
+        </a>
+    @endif
     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
         @foreach (\App\Models\User::ROLES as $key => $label)
             <a href="{{ route('employees.index', ['role' => $key]) }}" class="card card-pad !py-3 hover:bg-[var(--hover)]">
@@ -32,7 +37,43 @@
         <button class="btn">Cari</button>
     </form>
 
-    <div class="card overflow-hidden">
+    <div class="sm:hidden space-y-2.5">
+        @forelse ($employees as $e)
+            @php $u = $e->user; @endphp
+            <div class="card card-pad space-y-2.5">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="min-w-0">
+                        <div class="font-semibold truncate">{{ $e->name }}</div>
+                        <div class="text-[13px]" style="color:var(--muted)">{{ $e->code ?? '–' }}{{ $u ? ' · '.$u->username : ' · belum punya akun' }}</div>
+                    </div>
+                    @if ($e->trashed())<span class="chip chip-crit shrink-0">Dihapus</span>
+                    @elseif ($u)<span class="chip {{ $u->is_active ? 'chip-ok' : 'chip-crit' }} shrink-0">{{ $u->is_active ? 'Aktif' : 'Nonaktif' }}</span>@endif
+                </div>
+                @if ($u)
+                    <div class="flex flex-wrap gap-1.5">
+                        <span class="chip chip-muted">{{ $u->roleLabel() }}</span>
+                        @if ($u->isSubstitute())<span class="chip chip-warn">Pengganti</span>@elseif ($u->area)<span class="chip chip-muted">{{ $u->area->name }}</span>@endif
+                    </div>
+                @endif
+                <div class="flex gap-2">
+                    @if ($e->trashed())
+                        <form method="POST" action="{{ route('employees.restore', $e) }}" class="flex-1">@csrf<button class="btn w-full">Pulihkan</button></form>
+                    @else
+                        @if ($u && $u->id !== auth()->id())
+                            <form method="POST" action="{{ route('employees.toggle-active', $e) }}" class="flex-1">@csrf
+                                <button class="btn w-full {{ $u->is_active ? '' : 'btn-primary' }}">{{ $u->is_active ? 'Nonaktifkan' : 'Aktifkan' }}</button>
+                            </form>
+                        @endif
+                        <a href="{{ route('employees.edit', $e) }}" class="btn flex-1">Edit</a>
+                    @endif
+                </div>
+            </div>
+        @empty
+            <div class="card card-pad text-center" style="color:var(--muted)">Tidak ada data.</div>
+        @endforelse
+    </div>
+
+    <div class="card overflow-hidden hidden sm:block">
         <div class="overflow-x-auto">
             <table class="tbl">
                 <thead><tr><th>Kode</th><th>Nama</th><th>Jabatan</th><th>Akun</th><th>Role</th><th>Status</th><th>Login terakhir</th><th></th></tr></thead>
@@ -44,7 +85,7 @@
                         <td><x-user-link :employee="$e->id" :name="$e->name" /></td>
                         <td>{{ $e->position ?? '–' }}</td>
                         <td>{{ $u?->username ?? '–' }}</td>
-                        <td>@if ($u)<span class="chip chip-muted">{{ $u->roleLabel() }}</span>@else<span style="color:var(--muted)">Belum punya akun</span>@endif</td>
+                        <td>@if ($u)<span class="chip chip-muted">{{ $u->roleLabel() }}</span>@if ($u->isSubstitute())<span class="chip chip-warn ml-1">Pengganti</span>@elseif ($u->area)<span class="block text-[11.5px] mt-0.5" style="color:var(--muted)">{{ $u->area->name }}</span>@endif @else<span style="color:var(--muted)">Belum punya akun</span>@endif</td>
                         <td>
                             @if ($e->trashed())<span class="chip chip-crit">Dihapus</span>
                             @elseif (! $u)<span style="color:var(--muted)">–</span>
@@ -56,7 +97,14 @@
                             @if ($e->trashed())
                                 <form method="POST" action="{{ route('employees.restore', $e) }}">@csrf<button class="btn !h-8">Pulihkan</button></form>
                             @else
-                                <a href="{{ route('employees.edit', $e) }}" class="btn !h-8">Edit</a>
+                                <div class="flex justify-end gap-1.5">
+                                    @if ($u && $u->id !== auth()->id())
+                                        <form method="POST" action="{{ route('employees.toggle-active', $e) }}">@csrf
+                                            <button class="btn !h-8 {{ $u->is_active ? '' : 'btn-primary' }}">{{ $u->is_active ? 'Nonaktifkan' : 'Aktifkan' }}</button>
+                                        </form>
+                                    @endif
+                                    <a href="{{ route('employees.edit', $e) }}" class="btn !h-8">Edit</a>
+                                </div>
                             @endif
                         </td>
                     </tr>

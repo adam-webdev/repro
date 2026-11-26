@@ -52,8 +52,33 @@ class EvaluationCheck extends Model
         return $labels->isNotEmpty() ? $labels->implode(', ') : null;
     }
 
+    /** Evidence foto umum (opsional). */
     public function attachments()
     {
+        return $this->morphMany(Attachment::class, 'attachable')->whereNull('purpose');
+    }
+
+    /** Foto pengecekan visual pipa (wajib bila kontrol kepatuhan "Pengecekan visual pipa" dicentang). */
+    public function pipePhotos()
+    {
+        return $this->morphMany(Attachment::class, 'attachable')->where('purpose', Attachment::VISUAL_PIPE);
+    }
+
+    /** Semua foto (umum + visual pipa), untuk melepas foto lama saat form disimpan ulang. */
+    public function allAttachments()
+    {
         return $this->morphMany(Attachment::class, 'attachable');
+    }
+
+    /** Link foto untuk export Excel: "Foto: url1, url2". */
+    public function photoLinks(): array
+    {
+        return $this->attachments->map->url()->all();
+    }
+
+    /** Link bukti visual pipa: foto unggahan + link gambar yang diketik. */
+    public function pipePhotoLinks(): array
+    {
+        return array_values(array_filter([...$this->pipePhotos->map->url()->all(), $this->pipe_photo_url]));
     }
 }

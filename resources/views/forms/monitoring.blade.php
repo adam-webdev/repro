@@ -1,5 +1,5 @@
 <x-layouts.app title="Monitoring Karu">
-{{-- Monitoring Daily: dari Form Produksi & Form Evaluasi (planning) karu — App\Services\MonitoringDailyService. --}}
+{{-- Monitoring Daily: dari Form Rekapan karu (termasuk planning) — App\Services\MonitoringDailyService. --}}
 <div x-data="monitoringDaily(@js([
         'filters' => $filters,
         'endpoint' => route('forms.monitoring.data'),
@@ -29,7 +29,7 @@
         <button class="btn" @click="reset()" x-show="isFiltered()" x-cloak>Reset</button>
         <div class="ml-auto text-[12px]" style="color:var(--muted)">
             <span x-show="loading">Memuat…</span>
-            <span x-show="!loading">Sumber: Form Produksi & Form Evaluasi karu</span>
+            <span x-show="!loading">Sumber: Form Rekapan karu</span>
         </div>
     </div>
 
@@ -124,7 +124,7 @@
                 </div>
             </template>
             <div class="md-tile w-full text-center text-[13px]" style="color:var(--md-muted)" x-show="d && !d.machines.length">
-                Belum ada Form Produksi / Form Evaluasi karu untuk tanggal & grup ini.
+                Belum ada Form Rekapan karu untuk tanggal & grup ini.
             </div>
         </div>
     </div>

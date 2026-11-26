@@ -1,69 +1,47 @@
-<x-layouts.app title="Form Evaluasi">
+<x-layouts.app title="Form Daily Supervisor">
     @if ($canCreate)
         <x-slot:actions>
             <a href="{{ route('forms.evaluation.create') }}" class="btn btn-primary"><x-icon name="plus" :size="16" /><span class="hidden sm:inline">Isi form</span></a>
         </x-slot:actions>
     @endif
-@php
-    // Karu hanya melihat form miliknya sendiri, jadi kolom nama & riwayat input tidak perlu ditampilkan.
-    $isAdmin = auth()->user()->role !== 'karu';
-@endphp
 <div class="space-y-4">
     @include('forms._filters')
 
     <div class="card">
-        @if ($forms->isEmpty())
+        @if ($days->isEmpty())
             <div class="card-pad text-center py-12">
-                <div class="text-[15px] font-semibold">Belum ada form pada periode ini</div>
-                <p class="text-[13px] mt-1" style="color:var(--muted)">Form evaluasi diisi saat ada masalah atau sewaktu-waktu.</p>
-                @if ($canCreate)<a href="{{ route('forms.evaluation.create') }}" class="btn btn-primary mt-4"><x-icon name="plus" :size="16" />Isi Form Evaluasi</a>@endif
+                <div class="text-[15px] font-semibold">Belum ada pengecekan pada periode ini</div>
+                <p class="text-[13px] mt-1" style="color:var(--muted)">Form daily supervisor diisi saat ada masalah atau sewaktu-waktu.</p>
+                @if ($canCreate)<a href="{{ route('forms.evaluation.create') }}" class="btn btn-primary mt-4"><x-icon name="plus" :size="16" />Isi Form Daily Supervisor</a>@endif
             </div>
         @else
-            <div class="overflow-x-auto">
-                <table class="tbl">
-                    <thead><tr>
-                        <th>Tanggal</th><th>Shift</th>
-                        @if ($isAdmin)<th>Karu</th>@endif
-                        <th>Area</th><th>Mesin</th><th class="num">Pengecekan</th><th>Visual</th><th class="num">Foto</th>
-                        @if ($isAdmin)<th>Diinput</th><th>Terakhir diedit</th>@endif
-                        <th></th>
-                    </tr></thead>
-                    <tbody>
-                    @foreach ($forms as $form)
-                        @php
-                            $ng = $form->checks->filter(fn ($c) => $c->visual && $c->visual->label !== 'OK')->count();
-                            $photos = $form->checks->sum('attachments_count');
-                            $machines = $form->checks->map(fn ($c) => $c->machine?->code)->filter()->unique();
-                        @endphp
-                        <tr>
-                            <td class="font-medium">{{ $form->form_date->translatedFormat('D, d M Y') }}</td>
-                            <td>{{ $form->shift }}</td>
-                            @if ($isAdmin)<td>{{ $form->user?->name }}</td>@endif
-                            <td>{{ $form->area?->name ?? 'Semua' }}</td>
-                            <td class="!whitespace-normal min-w-[140px] max-w-[300px]">{{ $machines->join(', ') }}</td>
-                            <td class="num">{{ $form->checks->count() }}</td>
-                            <td>@if ($ng)<span class="chip chip-crit">{{ $ng }} tidak OK</span>@else<span class="chip chip-ok">OK</span>@endif</td>
-                            <td class="num">{{ $photos ?: '–' }}</td>
-                            @if ($isAdmin)
-                                <td><span class="block">{{ $form->creator?->name ?? $form->user?->name }}</span><span class="text-[11.5px]" style="color:var(--muted)">{{ $form->created_at->format('d/m/Y H:i') }}</span></td>
-                                <td><span class="block">{{ $form->updater?->name ?? '–' }}</span><span class="text-[11.5px]" style="color:var(--muted)">{{ $form->updated_at->format('d/m/Y H:i') }}</span></td>
-                            @endif
-                            <td class="text-right">
-                                <div class="inline-flex gap-1.5">
-                                    <a href="{{ route('forms.evaluation.show', $form) }}" class="btn !h-8">Detail</a>
-                                    @if (\App\Services\KaruFormService::canEdit(auth()->user(), $form))
-                                        <a href="{{ route('forms.evaluation.edit', $form) }}" class="btn !h-8">Edit</a>
-                                    @endif
-                                </div>
-                            </td>
-                        </tr>
-                    @endforeach
-                    </tbody>
-                </table>
+            <div class="card-pad !py-3 border-b" style="border-color:var(--border)">
+                <div class="card-title">Daftar tanggal</div>
+                <div class="card-sub">Pilih tanggal untuk melihat area, lalu pilih area untuk melihat semua pengecekan di area itu.</div>
             </div>
+            <ul class="divide-y" style="border-color:var(--border)">
+                @foreach ($days as $day)
+                    @php $date = \Illuminate\Support\Carbon::parse($day->form_date); @endphp
+                    <li>
+                        <a href="{{ route('forms.evaluation.day', $date->toDateString()) }}" class="flex items-center gap-3 px-4 sm:px-5 py-3.5 hover:bg-[var(--hover)]">
+                            <span class="grid place-items-center w-11 h-11 rounded-xl shrink-0 leading-none text-center" style="background:var(--surface-2)">
+                                <span class="block">
+                                    <span class="block text-[16px] font-semibold">{{ $date->format('d') }}</span>
+                                    <span class="block text-[10.5px] uppercase mt-0.5" style="color:var(--muted)">{{ $date->translatedFormat('M') }}</span>
+                                </span>
+                            </span>
+                            <span class="min-w-0 flex-1">
+                                <span class="block text-[14.5px] font-semibold">{{ $date->translatedFormat('l, d F Y') }}</span>
+                                <span class="block text-[12.5px]" style="color:var(--muted)">{{ $day->checks }} pengecekan · {{ $day->areas }} area · {{ $day->karus }} karu</span>
+                            </span>
+                            <x-icon name="chevron-right" :size="18" style="color:var(--muted)" />
+                        </a>
+                    </li>
+                @endforeach
+            </ul>
         @endif
     </div>
 
-    {{ $forms->links() }}
+    {{ $days->links() }}
 </div>
 </x-layouts.app>

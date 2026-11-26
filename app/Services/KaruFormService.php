@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\ActivityLog;
 use App\Models\Attachment;
 use App\Models\Customer;
+use App\Models\EvaluationCheck;
 use App\Models\EvaluationForm;
 use App\Models\FormOption;
 use App\Models\Machine;
@@ -16,12 +17,25 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
-/** Simpan / ubah / hapus Form Produksi & Form Evaluasi, lengkap dengan audit trail. */
+/** Simpan / ubah / hapus Form Rekapan (produksi) & Form Daily Supervisor (evaluasi), lengkap dengan audit trail. */
 class KaruFormService
 {
     public static function canEdit(User $user, Model $form): bool
     {
         return ! $form->trashed() && ($user->isMaster() || ($user->role === 'karu' && $form->user_id === $user->id));
+    }
+
+    /**
+     * Aturan area untuk bagian atas form: area terkunci (karu tetap) atau form pengganti.
+     *
+     * @return array{lockedAreaId: ?int, bySubstitute: bool}
+     */
+    public static function headerContext(User $user, ?Model $form): array
+    {
+        return [
+            'lockedAreaId' => $user->lockedAreaId(),
+            'bySubstitute' => $form ? (bool) $form->by_substitute : $user->isSubstitute(),
+        ];
     }
 
     /** Opsi dropdown & master data untuk halaman form (dikirim ke Alpine). */
@@ -35,6 +49,7 @@ class KaruFormService
             'machineTypes' => collect(config('production.machine_types'))->map(fn ($d, $k) => ['key' => $k, 'label' => $d['label']])->values(),
             'options' => $opts->groupBy('group')->map(fn ($g) => $g->map(fn ($o) => ['id' => $o->id, 'type' => $o->machine_type, 'label' => $o->label])->values()),
             'customers' => Customer::orderBy('name')->pluck('name'),
+            'visualPipeId' => FormOption::visualPipeId(),
         ];
     }
 
@@ -42,12 +57,14 @@ class KaruFormService
 
     public function saveProduction(Request $request, ?ProductionForm $form = null): ProductionForm
     {
-        $d = $this->validateHeader($request) + $request->validate([
+        $d = $this->validateHeader($request, $form) + $request->validate([
             'items' => 'required|array|min:1|max:40',
             'items.*.machine_id' => 'required|integer|exists:machines,id',
             'items.*.machine_type' => ['required', Rule::in(array_keys(config('production.machine_types')))],
             'items.*.order_no' => 'required|string|max:20',
             'items.*.dimension' => 'required|string|max:60',
+            'items.*.planned_start' => 'required|date_format:H:i',
+            'items.*.planned_qty' => 'required|integer|min:0|max:10000000',
             'items.*.working_minutes' => 'required|integer|min:0|max:1440',
             'items.*.cutting_minutes' => 'required|integer|min:0|max:1440',
             'items.*.std_output' => 'required|numeric|min:0|max:100000',
@@ -92,7 +109,10 @@ class KaruFormService
         return DB::transaction(function () use ($request, $form, $d, $before) {
             $user = $request->user();
             $form ??= new ProductionForm(['user_id' => $user->id, 'employee_id' => $user->employee_id, 'created_by' => $user->id]);
-            $form->fill(['form_date' => $d['form_date'], 'shift' => $d['shift'], 'area_id' => $d['area_id'] ?? null, 'updated_by' => $user->id]);
+            $form->fill([
+                'form_date' => $d['form_date'], 'shift' => $d['shift'], 'area_id' => $d['area_id'] ?? null,
+                'by_substitute' => $d['by_substitute'], 'substitute_for_id' => $d['substitute_for_id'], 'updated_by' => $user->id,
+            ]);
             $isNew = ! $form->exists;
             $form->save();
 
@@ -102,6 +122,7 @@ class KaruFormService
                 $item = $form->items()->create([
                     'machine_id' => $it['machine_id'], 'machine_type' => $it['machine_type'], 'order_no' => $it['order_no'] ?? null,
                     'dimension' => $it['dimension'] ?? null,
+                    'planned_start' => $it['planned_start'] ?? null, 'planned_qty' => $it['planned_qty'] ?? null,
                     'working_minutes' => $it['working_minutes'] ?? null, 'cutting_minutes' => $it['cutting_minutes'] ?? null,
                     'std_output' => $it['std_output'] ?? null, 'act_output' => $it['act_output'] ?? null,
                     'ok_qty' => $it['ok_qty'] ?? null, 'second_grade_qty' => $it['second_grade_qty'] ?? null, 'nc_qty' => $it['nc_qty'] ?? null,
@@ -127,15 +148,16 @@ class KaruFormService
 
     public function saveEvaluation(Request $request, ?EvaluationForm $form = null): EvaluationForm
     {
-        // Form Evaluasi: semua kolom wajib diisi (OD lama tidak ada lagi di lembar, tetap opsional)
+        // Form Daily Supervisor: kolom wajib diisi kecuali foto (opsional). OD lama & planning (pindah ke Form Rekapan) tetap opsional
+        // supaya data lama tidak hilang saat diedit.
         $dec = 'required|numeric|min:0|max:100000';
-        $d = $this->validateHeader($request) + $request->validate([
+        $d = $this->validateHeader($request, $form) + $request->validate([
             'checks' => 'required|array|min:1|max:40',
             'checks.*.check_time' => 'required|date_format:H:i',
             'checks.*.machine_id' => 'required|integer|exists:machines,id',
             'checks.*.customer' => 'required|string|max:150',
             'checks.*.dimension' => 'required|string|max:60',
-            'checks.*.planned_start' => 'required|date_format:H:i',
+            'checks.*.planned_start' => 'nullable|date_format:H:i',
             'checks.*.od_mm' => 'nullable|numeric|min:0|max:100000', 'checks.*.d1' => $dec, 'checks.*.d2' => $dec, 'checks.*.d3' => $dec, 'checks.*.d4' => $dec,
             'checks.*.thickness_mm' => $dec, 'checks.*.ib_height_mm' => $dec, 'checks.*.length_mm' => $dec,
             'checks.*.jig_option_id' => 'nullable|integer|exists:form_options,id',
@@ -146,13 +168,17 @@ class KaruFormService
             'checks.*.compliance_option_ids.*' => 'integer|exists:form_options,id',
             'checks.*.compliance_other' => 'nullable|string|max:150',
             'checks.*.actual_cutting' => 'required|integer|min:0|max:10000000',
-            'checks.*.planned_qty' => 'required|integer|min:0|max:10000000',
+            'checks.*.planned_qty' => 'nullable|integer|min:0|max:10000000',
             'checks.*.problem' => 'required|string|max:2000',
-            'checks.*.attachments' => 'required|array|min:1|max:20',
+            'checks.*.attachments' => 'nullable|array|max:20',
             'checks.*.attachments.*' => 'integer',
+            'checks.*.pipe_attachments' => 'nullable|array|max:20',
+            'checks.*.pipe_attachments.*' => 'integer',
+            'checks.*.pipe_photo_url' => 'nullable|url|max:500',
         ], $this->messages(), $this->attributes());
 
         $groups = FormOption::pluck('group', 'id');
+        $visualPipeId = FormOption::visualPipeId();
         $errors = [];
         foreach ($d['checks'] as $i => $c) {
             foreach (['jig' => 'Jig', 'visual' => 'Visual'] as $g => $label) {
@@ -172,18 +198,26 @@ class KaruFormService
                     $errors["checks.$i.compliance_option_ids"] = 'Pilihan tidak valid.';
                 }
             }
+            $pipeChecked = $visualPipeId && in_array($visualPipeId, array_map('intval', $c['compliance_option_ids'] ?? []), true);
+            if ($pipeChecked && empty($c['pipe_attachments']) && blank($c['pipe_photo_url'] ?? null)) {
+                $errors["checks.$i.pipe_attachments"] = 'Pengecekan visual pipa dicentang: wajib unggah foto atau isi link gambar.';
+            }
         }
         $this->ensureAttachments($request, $d['checks'], $form, $errors, 'checks');
+        $pipeOn = fn (array $c) => $visualPipeId && in_array($visualPipeId, array_map('intval', $c['compliance_option_ids'] ?? []), true);
         if ($errors) {
             throw ValidationException::withMessages($errors);
         }
 
         $before = $form?->snapshot();
 
-        return DB::transaction(function () use ($request, $form, $d, $before) {
+        return DB::transaction(function () use ($request, $form, $d, $before, $pipeOn) {
             $user = $request->user();
             $form ??= new EvaluationForm(['user_id' => $user->id, 'employee_id' => $user->employee_id, 'created_by' => $user->id]);
-            $form->fill(['form_date' => $d['form_date'], 'shift' => $d['shift'], 'area_id' => $d['area_id'] ?? null, 'updated_by' => $user->id]);
+            $form->fill([
+                'form_date' => $d['form_date'], 'shift' => $d['shift'], 'area_id' => $d['area_id'] ?? null,
+                'by_substitute' => $d['by_substitute'], 'substitute_for_id' => $d['substitute_for_id'], 'updated_by' => $user->id,
+            ]);
             $isNew = ! $form->exists;
             $form->save();
 
@@ -203,12 +237,16 @@ class KaruFormService
                     'jig_option_id' => $c['jig_option_id'] ?? null, 'jig_other' => empty($c['jig_option_id']) ? ($c['jig_other'] ?? null) : null,
                     'visual_option_id' => $c['visual_option_id'] ?? null, 'visual_other' => empty($c['visual_option_id']) ? ($c['visual_other'] ?? null) : null,
                     'compliance_other' => $c['compliance_other'] ?? null,
+                    'pipe_photo_url' => $pipeOn($c) ? ($c['pipe_photo_url'] ?? null) : null,
                     'actual_cutting' => $c['actual_cutting'] ?? null,
                     'planned_qty' => $c['planned_qty'] ?? null,
                     'problem' => $c['problem'] ?? null,
                 ]);
                 $check->compliances()->sync(array_unique($c['compliance_option_ids'] ?? []));
                 $this->attach($c['attachments'] ?? [], 'evaluation_check', $check->id);
+                if ($pipeOn($c)) {
+                    $this->attach($c['pipe_attachments'] ?? [], 'evaluation_check', $check->id, Attachment::VISUAL_PIPE);
+                }
             }
 
             $this->log($isNew, $form, $before, $form->snapshot());
@@ -230,21 +268,68 @@ class KaruFormService
         SummaryBuilder::bumpCache();
     }
 
+    /**
+     * Hapus satu pengecekan (mis. salah ketik). Jika itu pengecekan terakhir di form, form ikut dihapus (soft delete).
+     * Perubahan tercatat di log aktivitas; foto dilepas tapi filenya tetap disimpan.
+     */
+    public function deleteCheck(Request $request, EvaluationCheck $check): void
+    {
+        $form = $check->form;
+        if ($form->checks()->count() <= 1) {
+            $this->delete($request, $form);
+
+            return;
+        }
+
+        $before = $form->snapshot();
+        DB::transaction(function () use ($request, $form, $check, $before) {
+            $this->detachOld(collect([$check->id]), 'evaluation_check');
+            $check->delete();
+            foreach ($form->checks()->get() as $i => $c) {
+                $c->update(['seq' => $i + 1]);
+            }
+            $form->forceFill(['updated_by' => $request->user()->id])->save();
+            $this->log(false, $form, $before, $form->snapshot());
+        });
+        SummaryBuilder::bumpCache();
+    }
+
     // ------------------------------------------------------------------ helper
 
-    private function validateHeader(Request $request): array
+    /**
+     * Tanggal, shift, area & keterangan pengganti.
+     * Karu tetap selalu memakai area tugasnya; karu pengganti wajib memilih area dan boleh mengisi "Menggantikan".
+     *
+     * @return array{form_date: string, shift: int, area_id: ?int, by_substitute: bool, substitute_for_id: ?int}
+     */
+    private function validateHeader(Request $request, ?Model $form): array
     {
-        return $request->validate([
+        $user = $request->user();
+        $bySubstitute = $form ? (bool) $form->by_substitute : $user->isSubstitute();
+
+        $d = $request->validate([
             'form_date' => 'required|date|before_or_equal:today',
             'shift' => ['required', 'integer', Rule::in(array_keys(config('production.karu_shifts')))],
-            'area_id' => 'nullable|integer|exists:areas,id',
-        ], ['form_date.before_or_equal' => 'Tanggal tidak boleh melebihi hari ini.'], $this->attributes());
+            'area_id' => [$bySubstitute ? 'required' : 'nullable', 'integer', 'exists:areas,id'],
+            'substitute_for_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('role', 'karu')],
+        ], [
+            'form_date.before_or_equal' => 'Tanggal tidak boleh melebihi hari ini.',
+            'area_id.required' => 'Pilih area yang Anda gantikan.',
+        ], $this->attributes());
+
+        if ($locked = $user->lockedAreaId()) {
+            $d['area_id'] = $locked;
+        }
+        $d['by_substitute'] = $bySubstitute;
+        $d['substitute_for_id'] = $bySubstitute ? ($d['substitute_for_id'] ?? null) : null;
+
+        return $d;
     }
 
     /** Foto harus milik pengguna ini (baru diunggah) atau sudah menempel di form yang sama. */
     private function ensureAttachments(Request $request, array $rows, ?Model $form, array &$errors, string $key = 'items'): void
     {
-        $ids = collect($rows)->pluck('attachments')->flatten()->filter()->unique();
+        $ids = collect($rows)->flatMap(fn ($r) => [...($r['attachments'] ?? []), ...($r['pipe_attachments'] ?? [])])->filter()->unique();
         if ($ids->isEmpty()) {
             return;
         }
@@ -263,14 +348,14 @@ class KaruFormService
     private function detachOld($childIds, string $type): void
     {
         if ($childIds->isNotEmpty()) {
-            Attachment::where('attachable_type', $type)->whereIn('attachable_id', $childIds)->update(['attachable_type' => null, 'attachable_id' => null]);
+            Attachment::where('attachable_type', $type)->whereIn('attachable_id', $childIds)->update(['attachable_type' => null, 'attachable_id' => null, 'purpose' => null]);
         }
     }
 
-    private function attach(array $ids, string $type, int $id): void
+    private function attach(array $ids, string $type, int $id, ?string $purpose = null): void
     {
         if ($ids) {
-            Attachment::whereIn('id', $ids)->update(['attachable_type' => $type, 'attachable_id' => $id]);
+            Attachment::whereIn('id', $ids)->update(['attachable_type' => $type, 'attachable_id' => $id, 'purpose' => $purpose]);
         }
     }
 
@@ -307,20 +392,20 @@ class KaruFormService
             'integer' => ':attribute harus angka bulat.',
             'min' => ':attribute tidak boleh negatif.',
             'date_format' => 'Format jam tidak valid.',
-            'checks.*.attachments.required' => 'Evidence foto wajib, minimal 1 foto.',
-            'checks.*.attachments.min' => 'Evidence foto wajib, minimal 1 foto.',
+            'checks.*.pipe_photo_url.url' => 'Link gambar harus berupa URL lengkap, mis. https://…',
         ];
     }
 
     private function attributes(): array
     {
         return [
-            'form_date' => 'Tanggal', 'shift' => 'Shift', 'area_id' => 'Area',
+            'form_date' => 'Tanggal', 'shift' => 'Shift', 'area_id' => 'Area', 'substitute_for_id' => 'Menggantikan',
             'items.*.machine_id' => 'Mesin', 'items.*.order_no' => 'No. PRO', 'checks.*.machine_id' => 'Mesin', 'items.*.machine_type' => 'Jenis mesin',
             'items.*.working_minutes' => 'Waktu kerja', 'items.*.cutting_minutes' => 'Cutting time',
             'items.*.std_output' => 'Std output', 'items.*.act_output' => 'Act output', 'items.*.ok_qty' => 'Hasil OK',
             'items.*.second_grade_qty' => 'Hasil 2nd grade', 'items.*.nc_qty' => 'Hasil NC', 'items.*.problems.*.minutes' => 'Menit',
             'items.*.problems.*.kind' => 'Jenis problem', 'items.*.dimension' => 'Dimensi',
+            'items.*.planned_start' => 'Start jam planning', 'items.*.planned_qty' => 'Qty planning',
             'checks.*.check_time' => 'Jam cek', 'checks.*.customer' => 'Customer', 'checks.*.dimension' => 'Size / dimensi',
             'checks.*.planned_start' => 'Start jam planning', 'checks.*.planned_qty' => 'Qty planning',
             'checks.*.d1' => 'D1', 'checks.*.d2' => 'D2', 'checks.*.d3' => 'D3', 'checks.*.d4' => 'D4',

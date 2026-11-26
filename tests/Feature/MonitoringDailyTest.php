@@ -31,19 +31,6 @@ class MonitoringDailyTest extends TestCase
         }
     }
 
-    /** Form Evaluasi dengan baris planning: [machine_id, start, qty]. */
-    private function planningForm(string $date, array $rows): void
-    {
-        $formId = DB::table('evaluation_forms')->insertGetId([
-            'form_date' => $date, 'shift' => 1, 'user_id' => $this->karu->id, 'created_at' => now(), 'updated_at' => now(),
-        ]);
-        foreach ($rows as $i => [$machineId, $start, $qty]) {
-            DB::table('evaluation_checks')->insert([
-                'evaluation_form_id' => $formId, 'seq' => $i + 1, 'machine_id' => $machineId, 'planned_start' => $start, 'planned_qty' => $qty,
-            ]);
-        }
-    }
-
     public function test_monitoring_daily_numbers_come_from_karu_production_forms(): void
     {
         $this->karu = User::create(['name' => 'Karu', 'username' => 'karu1', 'password' => 'rahasia123', 'role' => 'karu', 'is_active' => true]);
@@ -56,30 +43,26 @@ class MonitoringDailyTest extends TestCase
         $setup = FormOption::create(['group' => 'setup', 'label' => 'Setting Awal']);
 
         $this->form('2026-11-20', 1, [
-            ['machine_id' => $m508->id, 'working_minutes' => 480, 'cutting_minutes' => 400, 'std_output' => 100,
+            ['machine_id' => $m508->id, 'planned_start' => '07:00', 'planned_qty' => 1000, 'working_minutes' => 480, 'cutting_minutes' => 400, 'std_output' => 100,
                 'ok_qty' => 700, 'second_grade_qty' => 50, 'nc_qty' => 50, 'problems' => [
                     ['kind' => 'dt', 'form_option_id' => $briefing->id, 'minutes' => 30],
                     ['kind' => 'dt', 'form_option_id' => $briefing->id, 'minutes' => 10],
                     ['kind' => 'dt', 'form_option_id' => null, 'other_text' => 'Tunggu forklift', 'minutes' => 15],
                     ['kind' => 'setup', 'form_option_id' => $setup->id, 'minutes' => 20],
                 ]],
-            ['machine_id' => $laser->id, 'working_minutes' => 480, 'cutting_minutes' => 480, 'ok_qty' => 999],
+            ['machine_id' => $laser->id, 'planned_start' => '07:00', 'planned_qty' => 999, 'working_minutes' => 480, 'cutting_minutes' => 480, 'ok_qty' => 999],
+            // planning sudah diisi di Form Rekapan, hasil produksi belum ada
+            ['machine_id' => $m509->id, 'planned_start' => '08:00', 'planned_qty' => 300, 'working_minutes' => 0, 'cutting_minutes' => 0, 'ok_qty' => 0],
         ]);
+        // planning per PRO di Form Rekapan: dua PRO di mesin yang sama dijumlah, start = paling awal
         $this->form('2026-11-20', 2, [
-            ['machine_id' => $m505->id, 'working_minutes' => 480, 'cutting_minutes' => 450, 'ok_qty' => 300, 'nc_qty' => 30],
+            ['machine_id' => $m505->id, 'planned_start' => '13:00', 'planned_qty' => 200, 'working_minutes' => 480, 'cutting_minutes' => 450, 'ok_qty' => 300, 'nc_qty' => 30],
+            ['machine_id' => $m505->id, 'planned_start' => '07:30', 'planned_qty' => 400, 'working_minutes' => 0, 'cutting_minutes' => 0, 'ok_qty' => 0],
         ]);
         $this->form('2026-11-19', 1, [
             ['machine_id' => $m508->id, 'working_minutes' => 480, 'cutting_minutes' => 480, 'std_output' => 100, 'ok_qty' => 400],
         ]);
         $this->form('2026-11-20', 3, [['machine_id' => $m508->id, 'working_minutes' => 480, 'ok_qty' => 5000]], deleted: true);
-
-        // Planning (Form Evaluasi): baris cek per jam untuk pekerjaan yang sama tidak dijumlah dua kali
-        $this->planningForm('2026-11-20', [
-            [$m508->id, '07:00', 1000], [$m508->id, '07:00', 1000],
-            [$m505->id, '13:00', 200], [$m505->id, '07:30', 400],
-            [$m509->id, '08:00', 300], // ada planning tapi belum ada Form Produksi
-            [$laser->id, '07:00', 999],
-        ]);
 
         $d = $this->actingAs($admin)->getJson('/forms/monitoring/data?group=CUTP&date=2026-11-20')->assertOk()->json();
 
@@ -87,6 +70,11 @@ class MonitoringDailyTest extends TestCase
         // productivity = total pcs ÷ qty planning
         $this->assertEquals(['total_pc' => 1130, 'planned_qty' => 1900, 'efficiency' => 100, 'productivity' => 59.5, 'pcs_per_hour' => 70.6, 'ng' => 80, 'ng_rate' => 7.08], $d['kpi']);
         $this->assertEquals(['total_pc' => 182.5, 'efficiency' => 100, 'productivity' => null], $d['kpi_change']);
+
+        // Planning dari Form Evaluasi tidak lagi dipakai
+        $evalId = DB::table('evaluation_forms')->insertGetId(['form_date' => '2026-11-20', 'shift' => 1, 'user_id' => $this->karu->id, 'created_at' => now(), 'updated_at' => now()]);
+        DB::table('evaluation_checks')->insert(['evaluation_form_id' => $evalId, 'seq' => 1, 'machine_id' => $m508->id, 'planned_start' => '06:00', 'planned_qty' => 5000]);
+        $this->assertSame($d['kpi'], $this->actingAs($admin)->getJson('/forms/monitoring/data?group=CUTP&date=2026-11-20')->json('kpi'));
 
         // Bulanan: 30 hari November, target = std output × waktu kerja
         $this->assertCount(30, $d['month']['days']);

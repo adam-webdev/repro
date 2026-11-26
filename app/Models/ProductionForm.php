@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasSubstitute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/** Form Produksi (rutin) yang diisi Karu: satu form = satu tanggal+shift, banyak mesin. */
+/** Form Rekapan (dulu Form Produksi) yang diisi Karu: satu form = satu tanggal+shift, banyak PRO / mesin, termasuk planning. */
 class ProductionForm extends Model
 {
-    use SoftDeletes;
+    use HasSubstitute, SoftDeletes;
 
     protected $guarded = [];
 
@@ -51,7 +52,7 @@ class ProductionForm extends Model
 
     public function auditLabel(): string
     {
-        return 'Form Produksi '.$this->form_date->format('d/m/Y').' · Shift '.$this->shift.' · '.$this->user?->name;
+        return 'Form Rekapan '.$this->form_date->format('d/m/Y').' · Shift '.$this->shift.' · '.$this->user?->name;
     }
 
     /** Isi form dalam bentuk datar untuk membandingkan sebelum / sesudah edit. */
@@ -62,13 +63,15 @@ class ProductionForm extends Model
             'Tanggal' => $this->form_date->format('d/m/Y'),
             'Shift' => $this->shift,
             'Area' => $this->area?->name,
-        ];
+        ] + $this->substituteSnapshot();
         foreach ($this->items as $i => $it) {
             $p = 'Mesin #'.($i + 1).' ';
             $out += [
                 $p.'mesin' => $it->machine?->code,
                 $p.'no. PRO' => $it->order_no,
                 $p.'dimensi' => $it->dimension,
+                $p.'start planning' => $it->planned_start ? substr($it->planned_start, 0, 5) : null,
+                $p.'qty planning' => $it->planned_qty,
                 $p.'waktu kerja' => $it->working_minutes,
                 $p.'cutting time' => $it->cutting_minutes,
                 $p.'std output' => $it->std_output !== null ? (float) $it->std_output : null,

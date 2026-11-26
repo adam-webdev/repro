@@ -58,7 +58,11 @@ Route::middleware(['auth', 'role'])->group(function () {
     // Form Karu: Karu mengisi; Admin Produksi melihat
     Route::middleware('role:karu,produksi')->group(function () {
         Route::get('/forms/produksi', [ProductionFormController::class, 'index'])->name('forms.production.index');
+        Route::get('/forms/produksi/export', [ProductionFormController::class, 'export'])->name('forms.production.export');
         Route::get('/forms/evaluasi', [EvaluationFormController::class, 'index'])->name('forms.evaluation.index');
+        Route::get('/forms/evaluasi/hari/{date}', [EvaluationFormController::class, 'day'])->name('forms.evaluation.day');
+        Route::get('/forms/evaluasi/hari/{date}/{area}', [EvaluationFormController::class, 'area'])->name('forms.evaluation.area');
+        Route::get('/forms/evaluasi/hari/{date}/{area}/export', [EvaluationFormController::class, 'areaExport'])->name('forms.evaluation.area-export');
         Route::get('/attachments/{attachment}', [AttachmentController::class, 'show'])->name('attachments.show');
     });
     Route::middleware('role:karu')->group(function () {
@@ -73,6 +77,7 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::get('/forms/evaluasi/{form}/edit', [EvaluationFormController::class, 'edit'])->name('forms.evaluation.edit');
         Route::put('/forms/evaluasi/{form}', [EvaluationFormController::class, 'update'])->name('forms.evaluation.update');
         Route::delete('/forms/evaluasi/{form}', [EvaluationFormController::class, 'destroy'])->name('forms.evaluation.destroy');
+        Route::delete('/forms/evaluasi/cek/{check}', [EvaluationFormController::class, 'destroyCheck'])->name('forms.evaluation.check.destroy');
 
         Route::post('/attachments', [AttachmentController::class, 'store'])->name('attachments.store');
     });
@@ -90,6 +95,7 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::get('/employees/{employee}/edit', [EmployeeController::class, 'edit'])->name('employees.edit')->withTrashed();
         Route::put('/employees/{employee}', [EmployeeController::class, 'update'])->name('employees.update');
         Route::delete('/employees/{employee}', [EmployeeController::class, 'destroy'])->name('employees.destroy');
+        Route::post('/employees/{employee}/toggle-active', [EmployeeController::class, 'toggleActive'])->name('employees.toggle-active');
         Route::post('/employees/{employee}/restore', [EmployeeController::class, 'restore'])->name('employees.restore')->withTrashed();
 
         Route::get('/activity', [ActivityLogController::class, 'index'])->name('activity.index');

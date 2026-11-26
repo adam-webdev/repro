@@ -100,4 +100,26 @@ class DashboardDowntimeDetailTest extends TestCase
         $t = $this->actingAs($user)->getJson("/dashboard/trend?from=2026-11-05&to=2026-11-05&period=day&machine_id={$ekspansi->id}")->assertOk()->json();
         $this->assertSame(200, $t['trend'][0]['ok']);
     }
+
+    public function test_dashboard_compares_only_the_ticked_machines(): void
+    {
+        $user = User::create(['name' => 'Admin', 'username' => 'adm1', 'password' => 'rahasia123', 'role' => 'produksi', 'is_active' => true]);
+        $machines = collect(['CUTP-501' => 100, 'CUTP-502' => 200, 'CUTP-503' => 400])->map(function (int $ok, string $code) {
+            $m = Machine::create(['code' => $code, 'type' => 'CUTP']);
+            DB::table('daily_machine_summaries')->insert([
+                'production_date' => '2026-11-05', 'shift' => 1, 'machine_id' => $m->id, 'ok_qty' => $ok, 'working_minutes' => 600, 'cutting_minutes' => 540,
+            ]);
+
+            return $m;
+        });
+        $ticked = $machines['CUTP-501']->id.','.$machines['CUTP-503']->id;
+
+        $d = $this->actingAs($user)->getJson("/dashboard/data?from=2026-11-05&to=2026-11-05&period=day&machine_ids={$ticked}")->assertOk()->json();
+        $this->assertSame(['CUTP-501', 'CUTP-503'], array_column($d['machines'], 'code'));
+        $this->assertSame(500, $d['kpi']['ok']);
+
+        // klik batang satu mesin (machine_id) menggantikan pilihan ceklis
+        $t = $this->actingAs($user)->getJson("/dashboard/trend?from=2026-11-05&to=2026-11-05&period=day&machine_ids={$ticked}&machine_id={$machines['CUTP-502']->id}")->json();
+        $this->assertSame(200, $t['trend'][0]['ok']);
+    }
 }

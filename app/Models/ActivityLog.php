@@ -17,8 +17,8 @@ class ActivityLog extends Model
     public const TYPES = [
         'employee' => 'Karyawan',
         'user' => 'Akun pengguna',
-        'production_form' => 'Form Produksi',
-        'evaluation_form' => 'Form Evaluasi',
+        'production_form' => 'Form Rekapan',
+        'evaluation_form' => 'Form Daily Supervisor',
         'production_data' => 'Data Produksi (import)',
         'sap_data' => 'Data SAP (import)',
     ];

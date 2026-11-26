@@ -23,6 +23,8 @@ window.toggleSidebar = () => {
 };
 
 const isDark = () => document.documentElement.getAttribute('data-theme') === 'dark';
+/* Layar HP: label grafik dipersingkat supaya tidak terpotong / keluar bingkai */
+const isMobile = () => window.matchMedia('(max-width: 639px)').matches;
 
 /* Palet kategorikal tervalidasi (urutan tetap, tidak pernah diputar) */
 const SERIES = {
@@ -98,7 +100,7 @@ function base(t, extra = {}) {
 /* ------------------------------------------------------------------ komponen dashboard */
 Alpine.data('dashboard', (cfg) => ({
     cfg,
-    f: { from: cfg.filters.from, to: cfg.filters.to, period: cfg.filters.period, shift: '', area_id: '', building: '', machine_id: '' },
+    f: { from: cfg.filters.from, to: cfg.filters.to, period: cfg.filters.period, shift: '', area_id: '', building: '', machine_ids: [] },
     initial: null,
     d: null,
     loading: false,
@@ -124,19 +126,22 @@ Alpine.data('dashboard', (cfg) => ({
         { key: 'code', label: 'Mesin' }, { key: 'area', label: 'Area' }, { key: 'ok', label: 'Baik (pcs)', num: true },
         { key: 'nc_pct', label: 'NC', num: true }, { key: 'reject_pct', label: 'Reject', num: true },
         { key: 'downtime_hours', label: 'Downtime (j)', num: true }, { key: 'cutting_pct', label: 'Cutting time', num: true },
-        { key: 'achievement', label: 'Capaian', num: true }, { key: 'yield_sap', label: 'Yield', num: true },
+        { key: 'yield_sap', label: 'Yield', num: true },
     ],
 
     init() {
         this.initial = JSON.parse(JSON.stringify(this.f));
         window.addEventListener('theme-changed', () => this.renderAll());
+        window.matchMedia('(max-width: 639px)').addEventListener('change', () => this.renderAll());
         // Filter terakhir dipakai lagi saat kembali ke halaman ini (sampai user menekan Reset).
         const saved = this.loadSaved();
         if (saved) {
-            Object.assign(this.f, saved.f);
+            const { machine_id: oldMachine, ...rest } = saved.f; // format lama: satu mesin
+            Object.assign(this.f, rest);
+            if (!Array.isArray(this.f.machine_ids)) this.f.machine_ids = oldMachine ? [String(oldMachine)] : [];
             // area / mesin yang sudah tidak ada (mis. Area 04 digabung ke Area 03) kembali ke "Semua"
             if (this.f.area_id && !cfg.machines.some(m => String(m.area_id) === String(this.f.area_id))) this.f.area_id = '';
-            if (this.f.machine_id && !cfg.machines.some(m => String(m.id) === String(this.f.machine_id))) this.f.machine_id = '';
+            this.f.machine_ids = this.f.machine_ids.map(String).filter(id => cfg.machines.some(m => String(m.id) === id));
             this.preset = saved.preset;
             // Periode cepat (mis. "30 hari") dihitung ulang dari data terbaru; tanggal manual dipakai apa adanya.
             if (saved.preset && saved.preset !== 'custom') return this.applyPreset(saved.preset);
@@ -169,6 +174,21 @@ Alpine.data('dashboard', (cfg) => ({
     machineOptions() {
         return cfg.machines.filter(m => (!this.f.area_id || String(m.area_id) === String(this.f.area_id)) && (!this.f.building || m.building === this.f.building));
     },
+    toggleMachine(id) {
+        id = String(id);
+        this.f.machine_ids = this.f.machine_ids.includes(id) ? this.f.machine_ids.filter(x => x !== id) : [...this.f.machine_ids, id];
+    },
+    machineLabel() {
+        const codes = this.f.machine_ids.map(id => cfg.machines.find(m => String(m.id) === id)?.code).filter(Boolean);
+        if (!codes.length) return 'Semua';
+        return codes.length <= 2 ? codes.join(', ') : `${codes.slice(0, 2).join(', ')} +${codes.length - 2}`;
+    },
+    areaName(id) { return cfg.areas.find(a => String(a.id) === String(id))?.name || ''; },
+    /* Parameter URL: array mesin dikirim sebagai "1,2,3" */
+    query(extra = {}) {
+        const params = { ...this.f, machine_ids: this.f.machine_ids.join(','), ...extra };
+        return new URLSearchParams(Object.entries(params).filter(([, v]) => v !== '' && v !== null && v !== undefined));
+    },
     reset() { this.f = JSON.parse(JSON.stringify(this.initial)); this.preset = '30d'; this.load(); },
 
     // ---------- filter area & mesin per grafik
@@ -190,7 +210,7 @@ Alpine.data('dashboard', (cfg) => ({
         if (!this.hasChartFilter(key)) { this.cdata[key] = null; return this.renderChart(key); }
         const id = ++this.creq[key];
         const c = this.cf[key];
-        const qs = new URLSearchParams(Object.entries({ ...this.f, area_id: c.area_id, machine_id: c.machine_id }).filter(([, v]) => v !== '' && v !== null));
+        const qs = this.query({ area_id: c.area_id, machine_id: c.machine_id });
         const res = await fetch(cfg.trendEndpoint + '?' + qs, { headers: { Accept: 'application/json' } });
         const data = await res.json();
         if (id !== this.creq[key]) return;
@@ -220,7 +240,7 @@ Alpine.data('dashboard', (cfg) => ({
         this.saveFilters();
         const id = ++this.reqId;
         this.loading = true;
-        const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
+        const qs = this.query();
         try {
             const res = await fetch(cfg.endpoint + '?' + qs, { headers: { Accept: 'application/json' } });
             const data = await res.json();
@@ -418,11 +438,11 @@ Alpine.data('dashboard', (cfg) => ({
             name: { setup: 'Set Up', downtime: 'Downtime' }[key] || key, color: this.categoryColors(theme())[key],
         });
         if (scroll) this.$nextTick(() => document.getElementById('dt-detail-' + anchor)?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
-        const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
+        const qs = this.query();
         qs.set('category', key);
         if (bucket) qs.set('bucket', bucket);
         if (reason) qs.set('reason', reason);
-        if (machine) { qs.set('machine_id', machine.id); qs.delete('area_id'); }
+        if (machine) { qs.set('machine_id', machine.id); qs.delete('machine_ids'); qs.delete('area_id'); }
         try {
             const res = await fetch(cfg.detailEndpoint + '?' + qs, { headers: { Accept: 'application/json' } });
             const data = await res.json();
@@ -473,7 +493,7 @@ Alpine.data('dashboard', (cfg) => ({
     },
 
     renderPareto(id, rows, field, unit, dec, onClick = null) {
-        const t = theme();
+        const t = theme(), mobile = isMobile();
         if (!rows.length) return this.empty(id);
         // reject: tampilkan mesin penyumbang (mis. Coaxial Over hanya di mesin swaging)
         const machineText = (r, max) => !r.machines ? '' : r.machines.slice(0, max).map(m => m.code).join(', ') + (r.machines.length > max ? ` +${r.machines.length - max}` : '');
@@ -485,11 +505,12 @@ Alpine.data('dashboard', (cfg) => ({
             dataLabels: { enabled: true, textAnchor: 'start', offsetX: 8, style: { fontSize: '11px', fontWeight: 500, colors: [t.ink2] },
                 formatter: (v, o) => {
                     const r = rows[o.dataPointIndex], m = machineText(r, 2);
+                    if (mobile) return `${fmt(v, dec)} ${unit}`;
                     return `${fmt(v, dec)} ${unit} · ${fmt(r.share, 0)}%` + (m ? ` · ${m}` : '');
                 } },
             xaxis: { categories: rows.map(r => r.name), labels: { formatter: v => short(v) }, axisBorder: { show: false }, axisTicks: { show: false },
-                min: 0, max: niceCeil(Math.max(...rows.map(r => r[field])) * (rows[0].machines ? 1.9 : 1.35)), tickAmount: 4 },
-            yaxis: { labels: { maxWidth: 190, style: { fontSize: '12px', colors: t.ink2 } } },
+                min: 0, max: niceCeil(Math.max(...rows.map(r => r[field])) * (mobile ? 1.3 : (rows[0].machines ? 1.9 : 1.35))), tickAmount: mobile ? 2 : 4 },
+            yaxis: { labels: { maxWidth: mobile ? 110 : 190, style: { fontSize: mobile ? '11px' : '12px', colors: t.ink2 } } },
             grid: { borderColor: t.grid, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
             legend: { show: false },
             tooltip: { theme: t.mode, y: { formatter: (v, o) => {
@@ -583,7 +604,7 @@ Alpine.data('dashboard', (cfg) => ({
             dataLabels: { enabled: true, enabledOnSeries: [0], offsetY: -18, formatter: v => fmt(v, 0) + '%',
                 style: { fontSize: '10.5px', fontWeight: 600, colors: [t.ink2] }, background: { enabled: false } },
             xaxis: { type: 'category', axisBorder: { color: t.axis }, axisTicks: { show: false },
-                labels: { rotate: -45, rotateAlways: rows.length > 14, style: { fontSize: '11px' } } },
+                labels: { rotate: -45, rotateAlways: rows.length > (isMobile() ? 6 : 14), style: { fontSize: isMobile() ? '10px' : '11px' } } },
             yaxis: { min: 0, max: 110, tickAmount: 5, labels: { formatter: v => fmt(v, 0) + '%' } },
             annotations: avg === null || avg === undefined ? {} : { yaxis: [{ y: avg, borderColor: t.series[0], strokeDashArray: 5, borderWidth: 1.5,
                 label: { text: 'Rata-rata ' + fmt(avg, 1) + '%', position: 'left', textAnchor: 'start', borderWidth: 0,
@@ -611,7 +632,7 @@ Alpine.data('dashboard', (cfg) => ({
             dataLabels: { enabled: true, textAnchor: 'start', offsetX: 8, style: { fontSize: '11px', fontWeight: 500, colors: [t.ink2] }, formatter: v => short(v) },
             xaxis: { categories: rows.map(r => r.name), labels: { formatter: v => short(v) }, axisBorder: { show: false }, axisTicks: { show: false },
                 min: 0, max: Math.max(...rows.map(r => r.qty)) * 1.3, tickAmount: 3 },
-            yaxis: { labels: { maxWidth: 150, style: { fontSize: '11.5px', colors: t.ink2 } } },
+            yaxis: { labels: { maxWidth: isMobile() ? 100 : 150, style: { fontSize: '11.5px', colors: t.ink2 } } },
             grid: { borderColor: t.grid, xaxis: { lines: { show: true } }, yaxis: { lines: { show: false } } },
             legend: { show: false },
             tooltip: { theme: t.mode, y: { formatter: (v, o) => `${fmt(v)} pcs · ${fmt(rows[o.dataPointIndex].kg / 1000, 1)} ton` } },
@@ -664,7 +685,7 @@ Alpine.data('monitoringDaily', (cfg) => ({
         } catch (e) {}
         const id = ++this.reqId;
         this.loading = true;
-        const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
+        const qs = this.query();
         try {
             const res = await fetch(cfg.endpoint + '?' + qs, { headers: { Accept: 'application/json' } });
             const data = await res.json();
@@ -696,7 +717,7 @@ Alpine.data('monitoringDaily', (cfg) => ({
         this.charts[id] = new ApexCharts(el, options);
         this.charts[id].render();
     },
-    empty(id, text = 'Belum ada data Form Produksi karu', h = 200) {
+    empty(id, text = 'Belum ada data Form Rekapan karu', h = 200) {
         if (this.charts[id]) { this.charts[id].destroy(); delete this.charts[id]; }
         const el = document.getElementById(id);
         if (el) el.innerHTML = `<div class="grid place-items-center text-[13px]" style="height:${h}px;color:var(--md-muted)">${text}</div>`;
@@ -786,7 +807,7 @@ Alpine.data('monitoringDaily', (cfg) => ({
 
     /*
      * 6. Actual vs Planning (pcs, batang) per mesin + garis Efficiency % (sumbu kanan).
-     * Planning = qty planning Form Evaluasi; efficiency = actual ÷ std output (titik hijau ≥ target, merah < target).
+     * Planning = qty planning Form Rekapan; efficiency = actual ÷ std output (titik hijau ≥ target, merah < target).
      */
     renderEfficiency() {
         const t = boardTheme(), rows = this.d.machines;
@@ -925,12 +946,15 @@ function karuFormBase(cfg) {
         hasErr(prefix) { return Object.keys(this.errors).some(k => k === prefix || k.startsWith(prefix + '.')); },
         machineCode(id) { return this.cfg.machines.find(m => String(m.id) === String(id))?.code || ''; },
         opts(group) { return this.cfg.options[group] || []; },
+        /* Karu tetap: area selalu area tugasnya (juga menimpa draft lama) */
+        applyAreaLock() { if (cfg.karu?.lockedAreaId) this.f.area_id = String(cfg.karu.lockedAreaId); },
 
-        async addPhotos(row, files) {
+        /* key: daftar foto di baris itu (photos = evidence umum, pipe_photos = foto visual pipa) */
+        async addPhotos(row, files, key = 'photos') {
             for (const f of Array.from(files || [])) {
                 this.uploading++;
-                row.photos.push({ id: null, url: URL.createObjectURL(f), uploading: true, error: '' });
-                const tmp = row.photos[row.photos.length - 1]; // ambil versi reaktif (proxy) supaya tampilan ikut berubah
+                row[key].push({ id: null, url: URL.createObjectURL(f), uploading: true, error: '' });
+                const tmp = row[key][row[key].length - 1]; // ambil versi reaktif (proxy) supaya tampilan ikut berubah
                 try {
                     const file = await compressImage(f);
                     // Normalnya foto sudah diperkecil (±200–500 KB). Bila HP gagal memperkecil, jangan kirim file raksasa.
@@ -948,7 +972,7 @@ function karuFormBase(cfg) {
                 }
             }
         },
-        removePhoto(row, i) { row.photos.splice(i, 1); },
+        removePhoto(row, i, key = 'photos') { row[key].splice(i, 1); },
 
         clean(v) { return v === '' || v === undefined ? null : v; },
         optVal(v) { return v === 'other' || v === '' || v === undefined ? null : Number(v); },
@@ -971,7 +995,7 @@ function karuFormBase(cfg) {
             this.$watch('f', () => { clearTimeout(timer); timer = setTimeout(() => this.saveDraft(), 400); });
         },
         saveDraft() {
-            const f = JSON.parse(JSON.stringify(this.f, (k, v) => k === 'photos'
+            const f = JSON.parse(JSON.stringify(this.f, (k, v) => (k === 'photos' || k === 'pipe_photos') && Array.isArray(v)
                 ? v.filter(p => p.id).map(p => ({ id: p.id, url: p.serverUrl || p.url }))
                 : v));
             try { localStorage.setItem(this.draftKey, JSON.stringify({ at: Date.now(), f })); } catch (e) { /* penuh / diblokir */ }
@@ -998,7 +1022,9 @@ function karuFormBase(cfg) {
                 if (res.status === 422) {
                     this.errors = data.errors || {};
                     this.message = 'Ada isian yang perlu diperbaiki (ditandai merah).';
-                    this.$nextTick(() => document.querySelector('[data-error="1"]')?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
+                    // ambil yang terlihat: form evaluasi punya tampilan kartu (HP) dan tabel (layar lebar)
+                    this.$nextTick(() => [...document.querySelectorAll('[data-error="1"]')].find(el => el.offsetParent !== null)
+                        ?.scrollIntoView({ behavior: 'smooth', block: 'center' }));
                     return;
                 }
                 if (res.status === 419 || res.status === 401) {
@@ -1026,15 +1052,18 @@ Alpine.data('productionForm', (cfg) => ({
             form_date: p?.form_date || guessFormDate(cfg.today),
             shift: p?.shift || guessShift(),
             area_id: p?.area_id || '',
+            substitute_for_id: p?.substitute_for_id || '',
             items: (p?.items || []).map(it => ({ ...this.newItem(), ...it, open: false })),
         });
+        this.applyAreaLock();
         this.f.items = this.f.items.map(it => ({ ...this.newItem(), ...it }));
         if (!this.f.items.length) this.addItem();
         this.watchDraft();
     },
     /* Satu baris = satu PRO di satu mesin. PRO baru membawa mesin dari baris sebelumnya (ganti PRO di mesin yang sama). */
     newItem(prev = null) {
-        return { machine_type: prev?.machine_type || '', machine_id: prev?.machine_id || '', order_no: '', dimension: '', working_minutes: '', cutting_minutes: '', std_output: '', act_output: '',
+        return { machine_type: prev?.machine_type || '', machine_id: prev?.machine_id || '', order_no: '', dimension: '', planned_start: '', planned_qty: '',
+            working_minutes: '', cutting_minutes: '', std_output: '', act_output: '',
             ok_qty: '', second_grade_qty: '', nc_qty: '', note: '', problems: [], photos: [], open: true };
     },
     addItem() {
@@ -1059,6 +1088,15 @@ Alpine.data('productionForm', (cfg) => ({
         return kind === 'dt' ? this.opts('dt').filter(o => !o.type || o.type === (it.machine_type || 'umum')) : this.opts(kind);
     },
     kindLabel(kind) { return { setup: 'SET UP', bongkar: 'BONGKAR', dt: 'DT' }[kind] || 'DT'; },
+    problemLabel(it, p) {
+        if (p.option_id === 'other') return 'Lainnya (isi manual)';
+        return this.problemOptions(it, p.kind).find(o => String(o.id) === String(p.option_id))?.label || '';
+    },
+    /* Cari keterangan: semua kata yang diketik harus ada (tidak peduli huruf besar / urutan). */
+    searchOptions(it, kind, q) {
+        const words = String(q || '').toLowerCase().split(/\s+/).filter(Boolean);
+        return this.problemOptions(it, kind).filter(o => words.every(w => o.label.toLowerCase().includes(w)));
+    },
     fixProblems(it) {
         it.problems.forEach(p => {
             if (p.option_id && p.option_id !== 'other' && !this.problemOptions(it, p.kind).some(o => String(o.id) === String(p.option_id))) p.option_id = '';
@@ -1079,8 +1117,10 @@ Alpine.data('productionForm', (cfg) => ({
     save() {
         this.submit({
             form_date: this.f.form_date, shift: Number(this.f.shift), area_id: this.clean(this.f.area_id),
+            substitute_for_id: this.clean(this.f.substitute_for_id),
             items: this.f.items.map(it => ({
                 machine_type: it.machine_type || 'umum', machine_id: this.clean(it.machine_id), order_no: this.clean(it.order_no), dimension: this.clean(it.dimension),
+                planned_start: this.clean(it.planned_start), planned_qty: this.clean(it.planned_qty),
                 working_minutes: this.clean(it.working_minutes), cutting_minutes: this.clean(it.cutting_minutes),
                 std_output: this.clean(it.std_output), act_output: this.clean(it.act_output), ok_qty: this.clean(it.ok_qty),
                 second_grade_qty: this.clean(it.second_grade_qty), nc_qty: this.clean(it.nc_qty), note: this.clean(it.note),
@@ -1098,28 +1138,33 @@ Alpine.data('evaluationForm', (cfg) => ({
     init() {
         const p = cfg.payload;
         this.f = this.withDraft({
-            form_date: p?.form_date || guessFormDate(cfg.today),
+            form_date: p?.form_date || cfg.defaults?.form_date || guessFormDate(cfg.today),
             shift: p?.shift || guessShift(),
-            area_id: p?.area_id || '',
+            area_id: p?.area_id || cfg.defaults?.area_id || '',
+            substitute_for_id: p?.substitute_for_id || '',
             checks: (p?.checks || []).map(c => ({ ...this.newCheck(), ...c })),
         });
+        this.applyAreaLock();
         this.f.checks = this.f.checks.map(c => ({ ...this.newCheck(), ...c }));
         if (!this.f.checks.length) this.addCheck();
         this.watchDraft();
     },
     newCheck(prev = null) {
         return { check_time: nowHM(), machine_id: prev?.machine_id || '', customer: prev?.customer || '', dimension: prev?.dimension || '',
-            planned_start: prev?.planned_start || '', planned_qty: prev?.planned_qty ?? '',
             od_mm: '', d1: '', d2: '', d3: '', d4: '', thickness_mm: '', ib_height_mm: '', length_mm: '',
             jig_option_id: '', jig_other: '', visual_option_id: '', visual_other: '',
             compliance_ids: [], compliance_other_on: false, compliance_other: '',
-            actual_cutting: '', problem: '', photos: [] };
+            actual_cutting: '', problem: '', photos: [], pipe_photos: [], pipe_photo_url: '' };
     },
+    /* "Pengecekan visual pipa" dicentang → muncul unggah foto / link gambar (wajib salah satu). */
+    hasPipe(c) { return !!this.cfg.visualPipeId && c.compliance_ids.map(String).includes(String(this.cfg.visualPipeId)); },
     /* Pengecekan baru otomatis membawa mesin, customer & dimensi dari pengecekan sebelumnya (bisa diganti). */
     addCheck() {
         const prev = this.f.checks[this.f.checks.length - 1];
         this.f.checks.push(this.newCheck(prev));
-        this.$nextTick(() => document.getElementById('check-' + (this.f.checks.length - 1))?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
+        const n = this.f.checks.length - 1;
+        this.$nextTick(() => [document.getElementById('check-' + n), document.getElementById('check-row-' + n)].find(el => el?.offsetParent)
+            ?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }));
     },
     toggleCompliance(c, id, on) {
         const rest = c.compliance_ids.filter(x => String(x) !== String(id));
@@ -1139,8 +1184,10 @@ Alpine.data('evaluationForm', (cfg) => ({
         const n = (v) => this.clean(v);
         this.submit({
             form_date: this.f.form_date, shift: Number(this.f.shift), area_id: n(this.f.area_id),
+            substitute_for_id: n(this.f.substitute_for_id),
             checks: this.f.checks.map(c => ({
                 check_time: n(c.check_time), machine_id: n(c.machine_id), customer: n(c.customer), dimension: n(c.dimension),
+                // planning lama (sekarang di Form Rekapan) hanya dikirim ulang bila ada, supaya tidak hilang saat diedit
                 planned_start: n(c.planned_start), planned_qty: n(c.planned_qty),
                 od_mm: n(c.od_mm), d1: n(c.d1), d2: n(c.d2), d3: n(c.d3), d4: n(c.d4), thickness_mm: n(c.thickness_mm),
                 ib_height_mm: n(c.ib_height_mm), length_mm: n(c.length_mm),
@@ -1149,6 +1196,8 @@ Alpine.data('evaluationForm', (cfg) => ({
                 compliance_option_ids: c.compliance_ids.map(Number), compliance_other: c.compliance_other_on ? n(c.compliance_other) : null,
                 actual_cutting: n(c.actual_cutting), problem: n(c.problem),
                 attachments: c.photos.filter(x => x.id).map(x => x.id),
+                pipe_attachments: this.hasPipe(c) ? c.pipe_photos.filter(x => x.id).map(x => x.id) : [],
+                pipe_photo_url: this.hasPipe(c) ? n((c.pipe_photo_url || '').trim()) : null,
             })),
         });
     },

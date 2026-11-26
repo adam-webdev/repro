@@ -1,9 +1,10 @@
-<x-layouts.app title="Form Produksi">
-    @if ($canCreate)
-        <x-slot:actions>
+<x-layouts.app title="Form Rekapan">
+    <x-slot:actions>
+        <a href="{{ route('forms.production.export', request()->only(['from', 'to', 'shift', 'area_id', 'user_id', 'machine_id'])) }}" class="btn"><x-icon name="download" :size="16" /><span class="hidden sm:inline">Export Excel</span></a>
+        @if ($canCreate)
             <a href="{{ route('forms.production.create') }}" class="btn btn-primary"><x-icon name="plus" :size="16" /><span class="hidden sm:inline">Isi form</span></a>
-        </x-slot:actions>
-    @endif
+        @endif
+    </x-slot:actions>
 @php
     // Karu hanya melihat form miliknya sendiri, jadi kolom nama & riwayat input tidak perlu ditampilkan.
     $isAdmin = auth()->user()->role !== 'karu';
@@ -17,7 +18,7 @@
             <div class="card-pad text-center py-12">
                 <div class="text-[15px] font-semibold">Belum ada form pada periode ini</div>
                 <p class="text-[13px] mt-1" style="color:var(--muted)">Ubah filter tanggal, atau isi form baru.</p>
-                @if ($canCreate)<a href="{{ route('forms.production.create') }}" class="btn btn-primary mt-4"><x-icon name="plus" :size="16" />Isi Form Produksi</a>@endif
+                @if ($canCreate)<a href="{{ route('forms.production.create') }}" class="btn btn-primary mt-4"><x-icon name="plus" :size="16" />Isi Form Rekapan</a>@endif
             </div>
         @else
             <div class="overflow-x-auto">
@@ -42,7 +43,7 @@
                         <tr>
                             <td class="font-medium">{{ $form->form_date->translatedFormat('D, d M Y') }}</td>
                             <td>{{ $form->shift }}</td>
-                            @if ($isAdmin)<td>{{ $form->user?->name }}</td>@endif
+                            @if ($isAdmin)<td>{{ $form->user?->name }}@if ($sub = $form->substituteLabel())<span class="block text-[11.5px]" style="color:var(--muted)">{{ $sub }}</span>@endif</td>@endif
                             <td>{{ $form->area?->name ?? 'Semua' }}</td>
                             <td class="!whitespace-normal min-w-[180px] max-w-[320px]">
                                 <span title="{{ $pros->join(', ') }}">{{ $pros->take(3)->join(', ') }}{{ $pros->count() > 3 ? ' +'.($pros->count() - 3) : '' }}</span>
@@ -61,6 +62,11 @@
                                     <a href="{{ route('forms.production.show', $form) }}" class="btn !h-8">Detail</a>
                                     @if (\App\Services\KaruFormService::canEdit(auth()->user(), $form))
                                         <a href="{{ route('forms.production.edit', $form) }}" class="btn !h-8">Edit</a>
+                                        <form method="POST" action="{{ route('forms.production.destroy', $form) }}" x-data
+                                              @submit="if (!confirm('Hapus form rekapan {{ $form->form_date->format('d/m/Y') }} shift {{ $form->shift }}? Riwayatnya tetap tersimpan.')) $event.preventDefault()">
+                                            @csrf @method('DELETE')
+                                            <button class="btn btn-danger !h-8">Hapus</button>
+                                        </form>
                                     @endif
                                 </div>
                             </td>

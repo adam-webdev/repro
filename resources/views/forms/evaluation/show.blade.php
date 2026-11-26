@@ -1,15 +1,17 @@
-<x-layouts.app title="Form Evaluasi">
+<x-layouts.app title="Form Daily Supervisor">
 @php
     $n = fn ($v, $d = 2) => $v === null ? '–' : rtrim(rtrim(number_format((float) $v, $d, ',', '.'), '0'), ',');
     // Semua opsi per grup, supaya hasilnya tampil seperti lembar kertas: yang dipilih tercentang, sisanya kosong
     $groups = \App\Models\FormOption::whereIn('group', ['jig', 'visual', 'compliance'])->whereNull('machine_type')
         ->where('is_active', true)->orderBy('sort')->get()->groupBy('group');
     $hasOd = $form->checks->contains(fn ($c) => $c->od_mm !== null); // data lama yang masih punya kolom OD terpisah
+    // planning sekarang diisi di Form Rekapan; kolom ini hanya tampil untuk data lama
+    $hasPlanning = $form->checks->contains(fn ($c) => $c->planned_start || $c->planned_qty !== null);
     $measures = array_merge($hasOd ? [['od_mm', 'OD']] : [], [['d1', 'D1'], ['d2', 'D2'], ['d3', 'D3'], ['d4', 'D4'], ['thickness_mm', 'Tebal'], ['ib_height_mm', 'Tinggi IB'], ['length_mm', 'Panjang']]);
 @endphp
 <div class="max-w-[1400px] mx-auto space-y-4">
     <div class="max-w-4xl">
-        @include('forms._show_header', ['kind' => 'Form Evaluasi · Daily Supervisory Control (PDR/PP/13)', 'editRoute' => 'forms.evaluation.edit', 'deleteRoute' => 'forms.evaluation.destroy', 'exportRoute' => 'forms.evaluation.export', 'exportLabel' => 'Export PDR/PP/13'])
+        @include('forms._show_header', ['kind' => 'Form Daily Supervisor · PDR/PP/13', 'editRoute' => 'forms.evaluation.edit', 'deleteRoute' => 'forms.evaluation.destroy', 'exportRoute' => 'forms.evaluation.export', 'exportLabel' => 'Export PDR/PP/13'])
     </div>
 
     <div class="card overflow-hidden">
@@ -27,12 +29,12 @@
                         <th rowspan="2" class="sheet-sticky">Jam cek</th>
                         <th rowspan="2">Mesin</th>
                         <th rowspan="2" class="min-w-[170px]">Customer &amp; dimensi</th>
-                        <th rowspan="2">Start jam<br><span class="font-normal">planning</span></th>
+                        @if ($hasPlanning)<th rowspan="2">Start jam<br><span class="font-normal">planning</span></th>@endif
                         <th colspan="{{ count($measures) }}" class="sheet-group">Pengecekan aktual (mm)</th>
                         <th rowspan="2" class="min-w-[140px]">Jig</th>
                         <th rowspan="2" class="min-w-[140px]">Visual</th>
                         <th rowspan="2">Actual cutting<br><span class="font-normal">(pcs)</span></th>
-                        <th rowspan="2">Qty planning<br><span class="font-normal">(pcs)</span></th>
+                        @if ($hasPlanning)<th rowspan="2">Qty planning<br><span class="font-normal">(pcs)</span></th>@endif
                         <th rowspan="2" class="min-w-[200px]">Kontrol kepatuhan</th>
                         <th rowspan="2" class="min-w-[220px]">Problem / keterangan</th>
                         <th rowspan="2" class="min-w-[130px]">Evidence foto</th>
@@ -55,7 +57,7 @@
                                 <div class="sheet-pre"><span>Cust</span>@if ($c->customer && auth()->user()->hasRole('produksi'))<a href="{{ route('customers.show', $c->customer) }}" class="underline underline-offset-2">{{ $c->customer->name }}</a>@else{{ $c->customer?->name ?? '–' }}@endif</div>
                                 <div class="sheet-pre mt-1"><span>Size</span>{{ $c->dimension ?: '–' }}</div>
                             </td>
-                            <td class="tabular-nums">{{ $c->planned_start ? substr($c->planned_start, 0, 5) : '–' }}</td>
+                            @if ($hasPlanning)<td class="tabular-nums">{{ $c->planned_start ? substr($c->planned_start, 0, 5) : '–' }}</td>@endif
                             @foreach ($measures as [$k, $l])
                                 <td class="text-right tabular-nums">{{ $n($c->{$k}) }}</td>
                             @endforeach
@@ -63,7 +65,7 @@
                                 <td>@include('forms.evaluation._ticks_read', ['g' => $g])</td>
                             @endforeach
                             <td class="text-right tabular-nums">{{ $c->actual_cutting !== null ? number_format($c->actual_cutting, 0, ',', '.') : '–' }}</td>
-                            <td class="text-right tabular-nums">{{ $c->planned_qty !== null ? number_format($c->planned_qty, 0, ',', '.') : '–' }}</td>
+                            @if ($hasPlanning)<td class="text-right tabular-nums">{{ $c->planned_qty !== null ? number_format($c->planned_qty, 0, ',', '.') : '–' }}</td>@endif
                             <td>@include('forms.evaluation._ticks_read_multi')</td>
                             <td class="whitespace-pre-line">{{ $c->problem ?: '–' }}</td>
                             <td>@include('forms._gallery', ['photos' => $c->attachments])</td>
@@ -78,7 +80,7 @@
         @if (auth()->user()->role !== 'karu')
             @include('forms._history')
         @endif
-        <a href="{{ route('forms.evaluation.index') }}" class="btn"><x-icon name="arrow-left" :size="16" />Kembali</a>
+        <a href="{{ $backUrl }}" class="btn"><x-icon name="arrow-left" :size="16" />Kembali</a>
     </div>
 </div>
 </x-layouts.app>

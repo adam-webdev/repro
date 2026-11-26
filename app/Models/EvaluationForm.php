@@ -2,13 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasSubstitute;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
-/** Form Evaluasi (Daily Supervisory Control, PDR/PP/13): pengecekan #1, #2, … beserta foto bukti. */
+/** Form Daily Supervisor (dulu Form Evaluasi, PDR/PP/13): pengecekan #1, #2, … beserta foto bukti. */
 class EvaluationForm extends Model
 {
-    use SoftDeletes;
+    use HasSubstitute, SoftDeletes;
 
     protected $guarded = [];
 
@@ -51,17 +52,17 @@ class EvaluationForm extends Model
 
     public function auditLabel(): string
     {
-        return 'Form Evaluasi '.$this->form_date->format('d/m/Y').' · Shift '.$this->shift.' · '.$this->user?->name;
+        return 'Form Daily Supervisor '.$this->form_date->format('d/m/Y').' · Shift '.$this->shift.' · '.$this->user?->name;
     }
 
     public function snapshot(): array
     {
-        $this->load(['area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments']);
+        $this->load(['area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
         $out = [
             'Tanggal' => $this->form_date->format('d/m/Y'),
             'Shift' => $this->shift,
             'Area' => $this->area?->name,
-        ];
+        ] + $this->substituteSnapshot();
         foreach ($this->checks as $c) {
             $p = 'Pengecekan #'.$c->seq.' ';
             $out += [
@@ -85,6 +86,8 @@ class EvaluationForm extends Model
                 $p.'qty planning' => $c->planned_qty,
                 $p.'problem' => $c->problem,
                 $p.'foto' => $c->attachments->count(),
+                $p.'foto visual pipa' => $c->pipePhotos->count() ?: null,
+                $p.'link visual pipa' => $c->pipe_photo_url,
             ];
         }
 

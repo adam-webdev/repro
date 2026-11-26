@@ -94,7 +94,7 @@ class AccessAndFormsTest extends TestCase
             'shift' => 2,
             'items' => [array_merge([
                 'machine_type' => 'laser', 'machine_id' => $laser->id, 'order_no' => '408894', 'dimension' => 'Ø10 × 1,3 × 862',
-                'working_minutes' => 420, 'cutting_minutes' => 360, 'std_output' => 200, 'act_output' => 170, 'ok_qty' => 1000,
+                'planned_start' => '07:30', 'planned_qty' => 1200, 'working_minutes' => 420, 'cutting_minutes' => 360, 'std_output' => 200, 'act_output' => 170, 'ok_qty' => 1000,
                 'problems' => [
                     ['kind' => 'setup', 'option_id' => $setup->id, 'minutes' => 20],
                     ['kind' => 'bongkar', 'option_id' => $bongkar->id, 'minutes' => 10],
@@ -116,8 +116,8 @@ class AccessAndFormsTest extends TestCase
         $this->actingAs($karu)->postJson('/forms/produksi', ['shift' => 3] + $payload())->assertStatus(422)->assertJsonValidationErrors('shift');
 
         // kolom wajib (*); hasil 2nd grade, NC & keterangan boleh kosong (tidak dikirim di payload)
-        $this->actingAs($karu)->postJson('/forms/produksi', $payload(['order_no' => null, 'dimension' => null, 'std_output' => null, 'ok_qty' => null]))
-            ->assertStatus(422)->assertJsonValidationErrors(['items.0.order_no', 'items.0.dimension', 'items.0.std_output', 'items.0.ok_qty'])
+        $this->actingAs($karu)->postJson('/forms/produksi', $payload(['order_no' => null, 'dimension' => null, 'std_output' => null, 'ok_qty' => null, 'planned_start' => null, 'planned_qty' => null]))
+            ->assertStatus(422)->assertJsonValidationErrors(['items.0.order_no', 'items.0.dimension', 'items.0.std_output', 'items.0.ok_qty', 'items.0.planned_start', 'items.0.planned_qty'])
             ->assertJsonMissingValidationErrors(['items.0.second_grade_qty', 'items.0.nc_qty', 'items.0.note']);
         $noMinutes = $payload(['problems' => [['kind' => 'setup', 'option_id' => $setup->id, 'minutes' => null]]]);
         $this->actingAs($karu)->postJson('/forms/produksi', $noMinutes)->assertStatus(422)->assertJsonValidationErrors('items.0.problems.0.minutes');
@@ -132,6 +132,7 @@ class AccessAndFormsTest extends TestCase
         $this->assertSame($karu->employee_id, $form->employee_id);
         $this->assertSame(4, $form->items->first()->problems()->count());
         $this->assertSame('408894', $form->items->first()->order_no);
+        $this->assertSame([1200, '07:30'], [$form->items->first()->planned_qty, substr($form->items->first()->planned_start, 0, 5)]);
         $this->assertDatabaseHas('production_form_problems', ['kind' => 'bongkar', 'form_option_id' => $bongkar->id, 'minutes' => 10]);
         $this->assertDatabaseHas('activity_logs', ['subject_type' => 'production_form', 'subject_id' => $form->id, 'action' => 'create', 'user_id' => $karu->id]);
 
@@ -177,10 +178,10 @@ class AccessAndFormsTest extends TestCase
         $jigIn = FormOption::create(['group' => 'jig', 'label' => 'JIG In']);
         $photo = fn () => DB::table('attachments')->insertGetId(['user_id' => $karu->id, 'path' => 'x.jpg', 'created_at' => now(), 'updated_at' => now()]);
 
-        // Form Evaluasi: semua kolom wajib diisi
+        // Form Daily Supervisor: kolom wajib diisi, kecuali foto (opsional); planning pindah ke Form Rekapan
         $full = fn (array $c = []) => array_merge([
             'check_time' => '08:15', 'machine_id' => $m->id, 'customer' => 'PT. RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
-            'planned_start' => '07:30', 'planned_qty' => 1200, 'd1' => 10.02, 'd2' => 10.01, 'd3' => 10, 'd4' => 10.02,
+            'd1' => 10.02, 'd2' => 10.01, 'd3' => 10, 'd4' => 10.02,
             'thickness_mm' => 1.3, 'ib_height_mm' => 0.2, 'length_mm' => 862, 'jig_option_id' => $jigIn->id, 'visual_option_id' => $visualNg->id,
             'compliance_option_ids' => [$apd->id, $fiveR->id], 'actual_cutting' => 300, 'problem' => 'Tidak ada', 'attachments' => [$photo()],
         ], $c);
@@ -188,9 +189,9 @@ class AccessAndFormsTest extends TestCase
             'form_date' => now()->toDateString(), 'shift' => 1,
             'checks' => [['machine_id' => $m->id]],
         ])->assertStatus(422)->assertJsonValidationErrors([
-            'checks.0.check_time', 'checks.0.customer', 'checks.0.dimension', 'checks.0.planned_start', 'checks.0.planned_qty', 'checks.0.d1',
-            'checks.0.length_mm', 'checks.0.actual_cutting', 'checks.0.problem', 'checks.0.attachments',
-        ]);
+            'checks.0.check_time', 'checks.0.customer', 'checks.0.dimension', 'checks.0.d1',
+            'checks.0.length_mm', 'checks.0.actual_cutting', 'checks.0.problem',
+        ])->assertJsonMissingValidationErrors(['checks.0.planned_start', 'checks.0.planned_qty', 'checks.0.attachments']);
         $this->actingAs($karu)->postJson('/forms/evaluasi', [
             'form_date' => now()->toDateString(), 'shift' => 1,
             'checks' => [$full(['jig_option_id' => null, 'visual_option_id' => null, 'compliance_option_ids' => []])],
@@ -200,14 +201,13 @@ class AccessAndFormsTest extends TestCase
             'form_date' => now()->toDateString(), 'shift' => 1,
             'checks' => [
                 $full(),
-                $full(['check_time' => '10:30', 'jig_option_id' => null, 'jig_other' => 'JIG khusus', 'problem' => 'Burry', 'compliance_option_ids' => [$apd->id], 'attachments' => [$photo()]]),
+                $full(['check_time' => '10:30', 'jig_option_id' => null, 'jig_other' => 'JIG khusus', 'problem' => 'Burry', 'compliance_option_ids' => [$apd->id], 'attachments' => []]),
             ],
         ])->assertOk();
 
         $this->assertDatabaseCount('evaluation_checks', 2);
         $this->assertDatabaseHas('evaluation_checks', ['seq' => 2, 'jig_other' => 'JIG khusus']);
         $this->assertDatabaseHas('customers', ['name' => 'RINNAI INDONESIA']);
-        $this->assertSame('07:30', substr(DB::table('evaluation_checks')->where('seq', 1)->where('planned_qty', 1200)->value('planned_start'), 0, 5));
         $this->assertDatabaseCount('evaluation_check_compliances', 3); // baris 1: APD + 5R, baris 2: APD
 
         // opsi grup lain tidak boleh dipakai sebagai kontrol kepatuhan
@@ -227,7 +227,7 @@ class AccessAndFormsTest extends TestCase
         $this->assertSame('Cust : RINNAI INDONESIA', $ws->getCell('C11')->getValue());
         $this->assertSame('NG', $ws->getCell('L11')->getValue());
         $this->assertStringContainsString('Penggunaan APD, 5R', $ws->getCell('N11')->getValue());
-        $this->assertStringContainsString('Planning: start 07:30 · 1.200 pcs', $ws->getCell('P11')->getValue());
+        $this->assertStringContainsString('Foto: '.route('attachments.show', DB::table('attachments')->whereNotNull('attachable_id')->value('id')), $ws->getCell('P11')->getValue());
         $this->assertStringContainsString('Jig: JIG khusus', $ws->getCell('P13')->getValue());
 
         // karu lain tidak boleh mengunduh form ini

@@ -29,8 +29,8 @@
         ]],
         ['Form karu', [
             ['forms.monitoring', 'Monitoring karu', 'activity', 'forms.monitoring*', $u->hasRole('produksi')],
-            ['forms.production.index', 'Form produksi', 'clipboard-list', 'forms.production.*', $u->hasRole('karu', 'produksi')],
-            ['forms.evaluation.index', 'Form evaluasi', 'clipboard-check', 'forms.evaluation.*', $u->hasRole('karu', 'produksi')],
+            ['forms.production.index', 'Form rekapan', 'clipboard-list', 'forms.production.*', $u->hasRole('karu', 'produksi')],
+            ['forms.evaluation.index', 'Form daily supervisor', 'clipboard-check', 'forms.evaluation.*', $u->hasRole('karu', 'produksi')],
         ]],
         ['Admin', [
             ['employees.index', 'Karyawan & akun', 'users', 'employees.*', $u->isMaster()],
@@ -102,7 +102,7 @@
     </aside>
 
     {{-- Konten --}}
-    <div class="flex-1 min-w-0 flex flex-col">
+    <div class="app-content flex-1 min-w-0 flex flex-col">
         <header class="sticky top-0 z-20 flex items-center gap-2 h-14 px-3 lg:px-6 border-b backdrop-blur"
                 style="background:color-mix(in srgb, var(--page) 85%, transparent);border-color:var(--border)">
             <button class="icon-btn lg:hidden" @click="nav=true" aria-label="Menu"><x-icon name="menu" :size="19" /></button>

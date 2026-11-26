@@ -27,7 +27,7 @@
     <dl class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-[13px]">
         <div>
             <dt class="label !mb-0.5">Kepala Regu</dt>
-            <dd><x-user-link :employee="$form->employee_id" :name="$form->user?->name" :sub="$form->employee?->code" /></dd>
+            <dd><x-user-link :employee="$form->employee_id" :name="$form->user?->name" :sub="$form->employee?->code" />@if ($sub = $form->substituteLabel())<span class="chip chip-warn ml-1.5">{{ $sub }}</span>@endif</dd>
         </div>
         <div>
             <dt class="label !mb-0.5">Diinput</dt>

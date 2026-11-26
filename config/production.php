@@ -151,7 +151,7 @@ return [
         'tunggu mtc' => ['downtime', 'Tunggu MTC'],
         'be' => ['downtime', 'BE'],
         'tunggu kep ppic' => ['downtime', 'Tunggu Kep PPIC'],
-        'tunggu kep qc verifikasi lt' => ['downtime', 'Tunggu Kep QC, Verifikasi LT'],
+        'tunggu kep qc verifikasi lt' => ['downtime', 'Verifikasi LT'],
         'tunggu bahan' => ['downtime', 'Tunggu Bahan'],
         'pindah box hasil produksi' => ['downtime', 'Pindah Box Hasil Produksi'],
         'tunggu asah gergaji' => ['downtime', 'Tunggu Asah Gergaji'],
@@ -258,6 +258,7 @@ return [
         ],
         'compliance' => [
             'Penggunaan APD', '5R', 'Pengisian history P.cutting', 'Pengisian history P chamfer', 'Pengisian history Gergaji',
+            'Pengecekan visual pipa', // wajib disertai foto / link gambar (lihat FormOption::VISUAL_PIPE)
         ],
         'visual' => ['OK', 'NG', 'Perlu tindak lanjut'],
         'jig' => ['JIG In', 'JIG Out', 'JIG Panjang', 'JIG GONOROGO'],

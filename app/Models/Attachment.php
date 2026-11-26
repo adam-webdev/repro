@@ -9,6 +9,9 @@ class Attachment extends Model
 {
     protected $guarded = [];
 
+    /** attachments.purpose untuk foto pengecekan visual pipa (Form Daily Supervisor). */
+    public const VISUAL_PIPE = 'visual_pipe';
+
     public function attachable()
     {
         return $this->morphTo();

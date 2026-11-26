@@ -14,6 +14,15 @@ class FormOption extends Model
         'setup' => 'Set Up', 'bongkar' => 'Bongkar', 'dt' => 'Downtime', 'compliance' => 'Kontrol Kepatuhan', 'visual' => 'Visual', 'jig' => 'JIG',
     ];
 
+    /** Kontrol kepatuhan yang wajib disertai foto / link gambar pipa. */
+    public const VISUAL_PIPE = 'Pengecekan visual pipa';
+
+    /** Id opsi kontrol kepatuhan "Pengecekan visual pipa" (null jika belum ada). */
+    public static function visualPipeId(): ?int
+    {
+        return static::where('group', 'compliance')->where('label', self::VISUAL_PIPE)->value('id');
+    }
+
     public function downtimeReason()
     {
         return $this->belongsTo(DowntimeReason::class);

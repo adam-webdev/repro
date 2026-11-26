@@ -4,13 +4,17 @@ namespace App\Services\Export;
 
 use App\Models\EvaluationCheck;
 use App\Models\EvaluationForm;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
- * Isi template kertas PDR/PP/13 (resources/templates/pdr-pp-13.xlsx) dengan data satu Form Evaluasi.
+ * Isi template kertas PDR/PP/13 (resources/templates/pdr-pp-13.xlsx) dengan data Form Daily Supervisor:
+ * satu form, atau gabungan semua karu pada satu tanggal + area.
  * Satu lembar memuat 15 pengecekan (baris 11–40, dua baris per pengecekan); kalau lebih, lembar diduplikasi.
+ * Foto tidak ditempel: link fotonya ditulis di kolom keterangan ("Foto: link").
  */
 class EvaluationSheetExport
 {
@@ -24,8 +28,56 @@ class EvaluationSheetExport
 
     public function build(EvaluationForm $form): Spreadsheet
     {
-        $form->loadMissing(['user.employee', 'area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances']);
+        $form->loadMissing(['user.employee', 'area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
+        $karu = $form->user?->name;
+        if ($code = $form->user?->employee?->code) {
+            $karu .= ' ('.$code.')';
+        }
+        if ($sub = $form->substituteLabel()) {
+            $karu .= ' · '.$sub;
+        }
 
+        return $this->fill(
+            ['date' => $form->form_date, 'shift' => (string) $form->shift, 'karu' => $karu, 'area' => $form->area?->name ?? 'Semua area'],
+            $form->checks->sortBy('seq')->values(),
+            'PDR/PP/13 '.$form->form_date->format('d-m-Y').' Shift '.$form->shift,
+            false,
+        );
+    }
+
+    /**
+     * Gabungan semua karu pada satu tanggal + area; $checks sudah urut dan memuat relasi form.user.
+     *
+     * @param  Collection<int, EvaluationCheck>  $checks
+     */
+    public function buildCombined(Carbon $date, string $areaName, Collection $checks): Spreadsheet
+    {
+        $forms = $checks->pluck('form')->unique('id');
+
+        return $this->fill(
+            [
+                'date' => $date,
+                'shift' => $forms->pluck('shift')->unique()->sort()->join(', '),
+                'karu' => $forms->map(fn ($f) => $f->user ? $f->karuLabel() : null)->filter()->unique()->sort()->join(', '),
+                'area' => $areaName,
+            ],
+            $checks->values(),
+            'PDR/PP/13 '.$date->format('d-m-Y').' '.$areaName,
+            $forms->count() > 1,
+        );
+    }
+
+    public function combinedFilename(Carbon $date, string $areaName): string
+    {
+        return sprintf('PDR-PP-13_%s_%s.xlsx', $date->format('Y-m-d'), trim(preg_replace('/[^A-Za-z0-9]+/', '-', $areaName), '-'));
+    }
+
+    /**
+     * @param  array{date: Carbon, shift: string, karu: ?string, area: string}  $header
+     * @param  Collection<int, EvaluationCheck>  $checks
+     */
+    private function fill(array $header, Collection $checks, string $title, bool $withKaru): Spreadsheet
+    {
         $book = IOFactory::load(resource_path(self::TEMPLATE));
         $master = $book->getSheet(0);
         // buang lembar kosong bawaan template (Sheet1–Sheet5)
@@ -33,7 +85,7 @@ class EvaluationSheetExport
             $book->removeSheetByIndex(1);
         }
 
-        $chunks = $form->checks->sortBy('seq')->values()->chunk(self::PER_PAGE);
+        $chunks = $checks->chunk(self::PER_PAGE);
         if ($chunks->isEmpty()) {
             $chunks = collect([collect()]);
         }
@@ -49,16 +101,15 @@ class EvaluationSheetExport
         }
         $master->setTitle('Hal 1');
 
-        foreach ($chunks->values() as $i => $checks) {
-            $this->fillHeader($sheets[$i], $form, $i + 1, $pages);
-            foreach ($checks->values() as $slot => $check) {
-                $this->fillCheck($sheets[$i], self::FIRST_ROW + $slot * 2, $check);
+        foreach ($chunks->values() as $i => $pageChecks) {
+            $this->fillHeader($sheets[$i], $header, $i + 1, $pages);
+            foreach ($pageChecks->values() as $slot => $check) {
+                $this->fillCheck($sheets[$i], self::FIRST_ROW + $slot * 2, $check, $withKaru);
             }
             $sheets[$i]->getPageSetup()->setPrintArea('A1:P42');
         }
         $book->setActiveSheetIndex(0);
-        $book->getProperties()->setTitle('PDR/PP/13 '.$form->form_date->format('d-m-Y').' Shift '.$form->shift)
-            ->setCreator(config('app.name'));
+        $book->getProperties()->setTitle($title)->setCreator(config('app.name'));
 
         return $book;
     }
@@ -70,21 +121,19 @@ class EvaluationSheetExport
         return sprintf('PDR-PP-13_%s_Shift%d_%s.xlsx', $form->form_date->format('Y-m-d'), $form->shift, trim($karu, '-'));
     }
 
-    private function fillHeader(Worksheet $ws, EvaluationForm $form, int $page, int $pages): void
+    /** @param  array{date: Carbon, shift: string, karu: ?string, area: string}  $h */
+    private function fillHeader(Worksheet $ws, array $h, int $page, int $pages): void
     {
-        $karu = $form->user?->name;
-        if ($code = $form->user?->employee?->code) {
-            $karu .= ' ('.$code.')';
-        }
-        $ws->setCellValue('D5', $form->form_date->translatedFormat('d F Y'));
-        $ws->setCellValue('D6', $form->shift);
+        $ws->setCellValue('D5', $h['date']->translatedFormat('d F Y'));
+        $ws->setCellValueExplicit('D6', $h['shift'], 's');
         $ws->getStyle('D6')->getAlignment()->setHorizontal('left');
-        $ws->setCellValue('N5', $karu);
-        $ws->setCellValue('N6', $form->area?->name ?? 'Semua area');
+        $ws->setCellValue('N5', $h['karu']);
+        $ws->getStyle('N5')->getAlignment()->setWrapText(true);
+        $ws->setCellValue('N6', $h['area']);
         $ws->setCellValue('P3', ": {$page} dari {$pages}");
     }
 
-    private function fillCheck(Worksheet $ws, int $r, EvaluationCheck $c): void
+    private function fillCheck(Worksheet $ws, int $r, EvaluationCheck $c, bool $withKaru = false): void
     {
         $r2 = $r + 1;
         $num = fn ($v) => $v === null ? null : (float) $v;
@@ -104,6 +153,9 @@ class EvaluationSheetExport
 
         // Jig: lembar kertas punya dua kotak, "In/Out" dan "Panjang"; pilihan lain dicatat di kolom keterangan
         $notes = [];
+        if ($withKaru) {
+            $notes[] = 'Karu: '.($c->form?->karuLabel() ?? '-').' · Shift '.$c->form?->shift;
+        }
         $jig = $c->jig?->label;
         if ($jig && preg_match('/jig (in|out)|in\/out/i', $jig)) {
             $ws->setCellValue("K{$r}", 'In/Out : '.self::TICK.(preg_match('/jig (in|out)$/i', $jig, $m) ? ' '.ucfirst(strtolower($m[1])) : ''));
@@ -128,6 +180,12 @@ class EvaluationSheetExport
         }
         if ($c->problem) {
             $notes[] = $c->problem;
+        }
+        foreach ($c->photoLinks() as $url) {
+            $notes[] = 'Foto: '.$url;
+        }
+        foreach ($c->pipePhotoLinks() as $url) {
+            $notes[] = 'Foto visual pipa: '.$url;
         }
         $ws->setCellValue("P{$r}", $notes ? implode("\n", $notes) : null);
 

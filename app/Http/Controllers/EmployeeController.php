@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ActivityLog;
 use App\Models\Employee;
 use App\Models\User;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -15,7 +16,7 @@ class EmployeeController extends Controller
     public function index(Request $request)
     {
         $status = $request->input('status', 'aktif');
-        $q = Employee::query()->with('user')
+        $q = Employee::query()->with('user.area')
             ->when($status === 'dihapus', fn ($q) => $q->onlyTrashed())
             ->when($request->filled('q'), function ($q) use ($request) {
                 $s = '%'.trim($request->input('q')).'%';
@@ -31,6 +32,7 @@ class EmployeeController extends Controller
             'employees' => $q->paginate(30)->withQueryString(),
             'status' => $status,
             'counts' => User::query()->selectRaw('role, COUNT(*) c')->where('is_active', true)->groupBy('role')->pluck('c', 'role'),
+            'inactiveSubstitutes' => User::where('role', 'karu')->where('is_substitute', true)->where('is_active', false)->count(),
         ]);
     }
 
@@ -46,14 +48,19 @@ class EmployeeController extends Controller
         DB::transaction(function () use ($data, $request) {
             $employee = Employee::create($data['employee']);
             if ($request->boolean('create_account')) {
-                User::create($data['account'] + [
+                User::create($data['account'] + $data['karu'] + [
                     'name' => $employee->name, 'employee_id' => $employee->id, 'email' => $employee->email,
-                    'is_active' => true, 'must_change_password' => true,
+                    'is_active' => ! $data['karu']['is_substitute'], 'must_change_password' => true,
                 ]);
             }
         });
 
-        return redirect()->route('employees.index')->with('success', 'Karyawan '.$data['employee']['name'].' ditambahkan.');
+        $message = 'Karyawan '.$data['employee']['name'].' ditambahkan.';
+        if ($request->boolean('create_account') && $data['karu']['is_substitute']) {
+            $message .= ' Akun karu pengganti masih nonaktif: tekan "Aktifkan" saat dia bertugas.';
+        }
+
+        return redirect()->route('employees.index')->with('success', $message);
     }
 
     public function edit(Employee $employee)
@@ -86,21 +93,34 @@ class EmployeeController extends Controller
                     'username' => $data['account']['username'],
                     'role' => $data['account']['role'],
                     'is_active' => $request->boolean('is_active'),
-                ];
+                ] + $data['karu'];
                 if (! empty($data['account']['password'])) {
                     $attrs['password'] = $data['account']['password'];
                     $attrs['must_change_password'] = true;
                 }
                 $user->update($attrs);
             } elseif ($request->boolean('create_account')) {
-                User::create($data['account'] + [
+                User::create($data['account'] + $data['karu'] + [
                     'name' => $employee->name, 'employee_id' => $employee->id, 'email' => $employee->email,
-                    'is_active' => true, 'must_change_password' => true,
+                    'is_active' => ! $data['karu']['is_substitute'], 'must_change_password' => true,
                 ]);
             }
         });
 
         return redirect()->route('employees.index')->with('success', 'Data '.$employee->name.' disimpan.');
+    }
+
+    /** Aktifkan / nonaktifkan akun langsung dari daftar, mis. saat karu pengganti mulai / selesai bertugas. */
+    public function toggleActive(Request $request, Employee $employee): RedirectResponse
+    {
+        $user = $employee->user;
+        abort_unless($user, 404);
+        if ($user->id === $request->user()->id) {
+            return back()->with('error', 'Anda tidak bisa menonaktifkan akun Anda sendiri.');
+        }
+        $user->update(['is_active' => ! $user->is_active]);
+
+        return back()->with('success', 'Akun '.$user->name.($user->is_active ? ' diaktifkan, sekarang bisa login.' : ' dinonaktifkan, tidak bisa login lagi.'));
     }
 
     /** Soft delete: karyawan disembunyikan & akunnya dinonaktifkan, riwayatnya tetap ada. */
@@ -166,6 +186,8 @@ class EmployeeController extends Controller
             'username' => [$needsAccount ? 'required' : 'nullable', 'string', 'max:50', 'regex:/^[A-Za-z0-9._-]+$/', Rule::unique('users', 'username')->ignore($userId)],
             'role' => [$needsAccount ? 'required' : 'nullable', Rule::in(array_keys(User::ROLES))],
             'password' => [$userId ? 'nullable' : ($needsAccount ? 'required' : 'nullable'), 'string', 'min:8'],
+            'area_id' => ['nullable', 'integer', 'exists:areas,id'],
+            'is_substitute' => ['nullable', 'boolean'],
         ], [
             'username.regex' => 'Username hanya huruf, angka, titik, strip, atau garis bawah (tanpa spasi).',
             'code.unique' => 'Kode sudah dipakai karyawan lain.',
@@ -180,6 +202,11 @@ class EmployeeController extends Controller
                 'code' => $code, 'name' => trim($v['name']), 'id_card' => ($v['id_card'] ?? null) ?: null, 'gender' => ($v['gender'] ?? null) ?: null,
                 'position' => ($v['position'] ?? null) ?: null, 'email' => ($v['email'] ?? null) ?: null,
             ],
+            // area tugas & pengganti hanya berlaku untuk role karu; karu pengganti tidak terikat area
+            'karu' => ($v['role'] ?? null) === 'karu' ? [
+                'is_substitute' => $request->boolean('is_substitute'),
+                'area_id' => $request->boolean('is_substitute') ? null : ($v['area_id'] ?? null),
+            ] : ['is_substitute' => false, 'area_id' => null],
             'account' => array_filter([
                 'username' => $v['username'] ?? null, 'role' => $v['role'] ?? null, 'password' => $v['password'] ?? null,
             ], fn ($x) => $x !== null && $x !== ''),

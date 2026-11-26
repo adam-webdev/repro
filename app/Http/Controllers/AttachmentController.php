@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attachment;
+use App\Models\EvaluationCheck;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 
@@ -35,9 +36,10 @@ class AttachmentController extends Controller
     public function show(Request $request, Attachment $attachment)
     {
         $user = $request->user();
+        // Karu: foto miliknya sendiri, foto form miliknya, atau foto Form Daily Supervisor (detail area digabung semua karu).
         if ($user->role === 'karu' && $attachment->user_id !== $user->id) {
-            $owner = $attachment->attachable?->form?->user_id;
-            abort_unless($owner === $user->id, 403);
+            $parent = $attachment->attachable;
+            abort_unless($parent instanceof EvaluationCheck || $parent?->form?->user_id === $user->id, 403);
         }
         abort_unless(Storage::disk('local')->exists($attachment->path), 404);
 

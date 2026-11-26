@@ -3,14 +3,14 @@
     $isEdit = $employee->exists;
     $roleHelp = [
         'master' => 'Akses penuh, satu-satunya yang bisa menambah user, menetapkan role, dan mengaktifkan / menonaktifkan user.',
-        'karu' => 'Mengisi Form Produksi (rutin) dan Form Evaluasi (saat ada masalah).',
+        'karu' => 'Mengisi Form Rekapan (rutin) dan Form Daily Supervisor.',
         'produksi' => 'Import & export Excel, melihat semua data lewat tabel.',
         'viewer' => 'Hanya melihat dashboard / grafik.',
     ];
 @endphp
 <div class="max-w-3xl mx-auto space-y-4">
     <form method="POST" action="{{ $isEdit ? route('employees.update', $employee) : route('employees.store') }}" class="space-y-4"
-          x-data="{ account: {{ $user || old('create_account') ? 'true' : 'false' }}, role: '{{ old('role', $user?->role ?? 'karu') }}' }">
+          x-data="{ account: {{ $user || old('create_account') ? 'true' : 'false' }}, role: '{{ old('role', $user?->role ?? 'karu') }}', substitute: {{ old('is_substitute', $user?->is_substitute) ? 'true' : 'false' }} }">
         @csrf
         @if ($isEdit) @method('PUT') @endif
 
@@ -69,6 +69,24 @@
                             </label>
                         @endforeach
                     </div>
+                </div>
+                <div x-show="role === 'karu'" x-cloak class="rounded-xl border p-3 space-y-3" style="border-color:var(--border)">
+                    <label class="flex items-start gap-2.5 text-[13.5px] cursor-pointer">
+                        <input type="hidden" name="is_substitute" value="0">
+                        <input type="checkbox" name="is_substitute" value="1" x-model="substitute" class="mt-1">
+                        <span><span class="block font-semibold">Karu pengganti</span>
+                            <span class="block text-[12px]" style="color:var(--muted)">Bisa input di semua area untuk menggantikan karu yang tidak masuk. Akun baru dibuat <b>nonaktif</b>; aktifkan dari daftar Karyawan saat dia bertugas.</span></span>
+                    </label>
+                    <label class="block" x-show="!substitute">
+                        <span class="label">Area tugas</span>
+                        <select name="area_id" class="input w-full sm:w-[220px] @error('area_id') is-invalid @enderror">
+                            <option value="">Bebas (semua area)</option>
+                            @foreach (\App\Models\Area::orderBy('name')->get(['id', 'name']) as $a)
+                                <option value="{{ $a->id }}" @selected((string) old('area_id', $user?->area_id) === (string) $a->id)>{{ $a->name }}</option>
+                            @endforeach
+                        </select>
+                        <span class="block text-[12px] mt-1" style="color:var(--muted)">Jika diisi, karu hanya bisa input di area ini (area terkunci di form). Kosongkan untuk karu bagian lain, mis. Repair / Packing.</span>
+                    </label>
                 </div>
                 @if ($user)
                     <label class="flex items-center gap-2 text-[13.5px]">
