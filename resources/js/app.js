@@ -685,7 +685,7 @@ Alpine.data('monitoringDaily', (cfg) => ({
         } catch (e) {}
         const id = ++this.reqId;
         this.loading = true;
-        const qs = this.query();
+        const qs = new URLSearchParams(Object.entries(this.f).filter(([, v]) => v !== '' && v !== null));
         try {
             const res = await fetch(cfg.endpoint + '?' + qs, { headers: { Accept: 'application/json' } });
             const data = await res.json();
