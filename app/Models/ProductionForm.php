@@ -77,7 +77,7 @@ class ProductionForm extends Model
                 $p.'std output' => $it->std_output !== null ? (float) $it->std_output : null,
                 $p.'act output' => $it->act_output !== null ? (float) $it->act_output : null,
                 $p.'OK' => $it->ok_qty,
-                $p.'2nd grade' => $it->second_grade_qty,
+                $p.'reject' => $it->second_grade_qty,
                 $p.'NC' => $it->nc_qty,
                 $p.'keterangan' => $it->note,
                 $p.'foto' => $it->attachments->count(),

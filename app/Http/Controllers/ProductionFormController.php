@@ -52,7 +52,7 @@ class ProductionFormController extends Controller
             $writer->addRow(Row::fromValuesWithStyle([
                 'Tanggal', 'Shift', 'Karu', 'Area', 'Mesin', 'Jenis Mesin', 'No. PRO', 'Dimensi', 'Start Jam Planning', 'Qty Planning (pcs)',
                 'Waktu Kerja (mnt)', 'Cutting Time (mnt)', 'Std Output (pcs/jam)', 'Act Output (pcs/jam)', 'Hasil OK (pcs)',
-                'Hasil 2nd Grade (pcs)', 'Hasil NC (pcs)', 'Productivity %', 'Set Up (mnt)', 'Bongkar (mnt)', 'Downtime (mnt)',
+                'Reject (pcs)', 'Hasil NC (pcs)', 'Productivity %', 'Set Up (mnt)', 'Bongkar (mnt)', 'Downtime (mnt)',
                 'Rincian Set Up / Bongkar / DT', 'Keterangan',
             ], (new Style)->withFontBold(true)));
 

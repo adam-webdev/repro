@@ -403,7 +403,7 @@ class KaruFormService
             'items.*.machine_id' => 'Mesin', 'items.*.order_no' => 'No. PRO', 'checks.*.machine_id' => 'Mesin', 'items.*.machine_type' => 'Jenis mesin',
             'items.*.working_minutes' => 'Waktu kerja', 'items.*.cutting_minutes' => 'Cutting time',
             'items.*.std_output' => 'Std output', 'items.*.act_output' => 'Act output', 'items.*.ok_qty' => 'Hasil OK',
-            'items.*.second_grade_qty' => 'Hasil 2nd grade', 'items.*.nc_qty' => 'Hasil NC', 'items.*.problems.*.minutes' => 'Menit',
+            'items.*.second_grade_qty' => 'Reject', 'items.*.nc_qty' => 'Hasil NC', 'items.*.problems.*.minutes' => 'Menit',
             'items.*.problems.*.kind' => 'Jenis problem', 'items.*.dimension' => 'Dimensi',
             'items.*.planned_start' => 'Start jam planning', 'items.*.planned_qty' => 'Qty planning',
             'checks.*.check_time' => 'Jam cek', 'checks.*.customer' => 'Customer', 'checks.*.dimension' => 'Size / dimensi',

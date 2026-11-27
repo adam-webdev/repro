@@ -17,7 +17,7 @@
 
     <div class="alert alert-info text-[13px]">
         <x-icon name="info" :size="16" />
-        <span>Kolom bertanda <b>*</b> wajib diisi. Yang boleh dikosongkan hanya <b>Hasil 2nd grade</b>, <b>Hasil NC</b>, <b>Keterangan</b> dan foto (opsional).
+        <span>Kolom bertanda <b>*</b> wajib diisi. Yang boleh dikosongkan hanya <b>Reject</b>, <b>Hasil NC</b>, <b>Keterangan</b> dan foto (opsional).
             <b>Start jam &amp; qty planning</b> dipakai untuk Productivity di Monitoring Karu. Set Up / Bongkar / Downtime diisi bila ada, dan menitnya wajib.</span>
     </div>
 
@@ -124,7 +124,7 @@
                 <div class="space-y-3">
                     <div class="text-[12px] font-semibold uppercase tracking-wider" style="color:var(--muted)">Pencapaian produksi</div>
                     <div class="grid grid-cols-2 gap-3">
-                        @foreach ([['std_output', 'Std output (pcs/jam) *', 'decimal'], ['act_output', 'Act output (pcs/jam) *', 'decimal'], ['ok_qty', 'Hasil OK (pcs) *', 'numeric'], ['second_grade_qty', 'Hasil 2nd grade (pcs)', 'numeric'], ['nc_qty', 'Hasil NC (pcs)', 'numeric']] as [$k, $l, $mode])
+                        @foreach ([['std_output', 'Std output (pcs/jam) *', 'decimal'], ['act_output', 'Act output (pcs/jam) *', 'decimal'], ['ok_qty', 'Hasil OK (pcs) *', 'numeric'], ['second_grade_qty', 'Reject (pcs)', 'numeric'], ['nc_qty', 'Hasil NC (pcs)', 'numeric']] as [$k, $l, $mode])
                             <label class="block">
                                 <span class="label">{{ $l }}</span>
                                 <input type="number" inputmode="{{ $mode }}" min="0" step="any" class="input" x-model="it.{{ $k }}" :class="err(`items.${i}.{{ $k }}`) && 'is-invalid'" :data-error="err(`items.${i}.{{ $k }}`) ? 1 : null"
