@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\ActivityLog;
 use App\Models\Employee;
+use App\Models\EvaluationCheck;
 use App\Models\EvaluationForm;
 use App\Models\FormOption;
 use App\Models\Machine;
@@ -68,9 +69,14 @@ class AccessAndFormsTest extends TestCase
         $this->actingAs($master)->get('/employees')->assertOk();
         $this->actingAs($master)->get('/activity')->assertOk();
 
-        // Monitoring Karu: halaman sendiri di menu Form karu, bukan di dashboard
+        // Monitoring Karu: halaman sendiri di menu Form karu, bukan di dashboard; karu ikut melihat
         $this->actingAs($viewer)->get('/forms/monitoring')->assertForbidden();
-        $this->actingAs($karu)->get('/forms/monitoring')->assertForbidden();
+        $this->actingAs($karu)->get('/forms/monitoring')->assertOk();
+        $this->actingAs($karu)->getJson('/forms/monitoring/data')->assertOk();
+        $this->actingAs($karu)->get('/')->assertOk();
+        // karu tidak bisa export data form
+        $this->actingAs($karu)->get('/forms/produksi/export')->assertForbidden();
+        $this->actingAs($karu)->get('/forms/produksi')->assertOk()->assertDontSee('Export Excel');
         $this->actingAs($produksi)->get('/forms/monitoring')->assertOk()->assertSee('Total produksi pcs')->assertDontSee('vs data admin');
         $this->actingAs($master)->getJson('/forms/monitoring/data')->assertOk()->assertJsonStructure(['kpi', 'kpi_change', 'month' => ['days', 'total_pcs'], 'machines', 'ng_top']);
 
@@ -94,7 +100,7 @@ class AccessAndFormsTest extends TestCase
             'shift' => 2,
             'items' => [array_merge([
                 'machine_type' => 'laser', 'machine_id' => $laser->id, 'order_no' => '408894', 'dimension' => 'Ø10 × 1,3 × 862',
-                'planned_start' => '07:30', 'planned_qty' => 1200, 'working_minutes' => 420, 'cutting_minutes' => 360, 'std_output' => 200, 'act_output' => 170, 'ok_qty' => 1000,
+                'planned_start' => '07:30', 'planned_qty' => 1200, 'working_minutes' => 430, 'cutting_minutes' => 360, 'std_output' => 200, 'act_output' => 170, 'ok_qty' => 1000,
                 'problems' => [
                     ['kind' => 'setup', 'option_id' => $setup->id, 'minutes' => 20],
                     ['kind' => 'bongkar', 'option_id' => $bongkar->id, 'minutes' => 10],
@@ -122,12 +128,21 @@ class AccessAndFormsTest extends TestCase
         $noMinutes = $payload(['problems' => [['kind' => 'setup', 'option_id' => $setup->id, 'minutes' => null]]]);
         $this->actingAs($karu)->postJson('/forms/produksi', $noMinutes)->assertStatus(422)->assertJsonValidationErrors('items.0.problems.0.minutes');
 
+        // Set Up + Bongkar + DT maksimal selisih waktu kerja − cutting time (430 − 360 = 70 mnt; payload memakai tepat 70)
+        $this->actingAs($karu)->postJson('/forms/produksi', $payload(['cutting_minutes' => 361]))
+            ->assertStatus(422)->assertJsonValidationErrors('items.0.problem_minutes');
+
+        // Reject diisi → alasan reject wajib
+        $this->actingAs($karu)->postJson('/forms/produksi', $payload(['second_grade_qty' => 5]))
+            ->assertStatus(422)->assertJsonValidationErrors('items.0.reject_reason');
+
         // "Lainnya" tanpa teks ditolak
         $bad = $payload(['problems' => [['kind' => 'dt', 'option_id' => null, 'other_text' => '', 'minutes' => 5]]]);
         $this->actingAs($karu)->postJson('/forms/produksi', $bad)->assertStatus(422);
 
-        $this->actingAs($karu)->postJson('/forms/produksi', $payload())->assertOk()->assertJsonStructure(['redirect']);
+        $this->actingAs($karu)->postJson('/forms/produksi', $payload(['second_grade_qty' => 5, 'reject_reason' => 'Burry']))->assertOk()->assertJsonStructure(['redirect']);
         $form = ProductionForm::firstOrFail();
+        $this->assertSame('Burry', $form->items->first()->reject_reason);
         $this->assertSame($karu->id, $form->user_id);
         $this->assertSame($karu->employee_id, $form->employee_id);
         $this->assertSame(4, $form->items->first()->problems()->count());
@@ -137,7 +152,7 @@ class AccessAndFormsTest extends TestCase
         $this->assertDatabaseHas('activity_logs', ['subject_type' => 'production_form', 'subject_id' => $form->id, 'action' => 'create', 'user_id' => $karu->id]);
 
         // edit: hasil OK berubah -> tercatat sebelum & sesudah
-        $this->actingAs($karu)->putJson("/forms/produksi/{$form->id}", $payload(['ok_qty' => 950]))->assertOk();
+        $this->actingAs($karu)->putJson("/forms/produksi/{$form->id}", $payload(['ok_qty' => 950, 'second_grade_qty' => 5, 'reject_reason' => 'Burry']))->assertOk();
         $log = ActivityLog::where('subject_id', $form->id)->where('action', 'update')->firstOrFail();
         $this->assertSame(1000, $log->changes['old']['Mesin #1 OK']);
         $this->assertSame(950, $log->changes['new']['Mesin #1 OK']);
@@ -170,40 +185,59 @@ class AccessAndFormsTest extends TestCase
 
     public function test_evaluation_form_with_multiple_checks(): void
     {
+        $this->travelTo(now()->setTime(15, 0)); // karu menyimpan jam 3 sore WIB
         $karu = $this->makeUser('karu');
         $m = Machine::create(['code' => 'CUTP-501', 'type' => 'CUTP']);
         $visualNg = FormOption::create(['group' => 'visual', 'label' => 'NG']);
         $apd = FormOption::create(['group' => 'compliance', 'label' => 'Penggunaan APD', 'sort' => 1]);
         $fiveR = FormOption::create(['group' => 'compliance', 'label' => '5R', 'sort' => 2]);
-        $jigIn = FormOption::create(['group' => 'jig', 'label' => 'JIG In']);
+        $jigIn = FormOption::create(['group' => 'jig', 'label' => 'JIG In', 'sort' => 1]);
+        $jigLength = FormOption::create(['group' => 'jig', 'label' => 'JIG Panjang', 'sort' => 2]);
         $photo = fn () => DB::table('attachments')->insertGetId(['user_id' => $karu->id, 'path' => 'x.jpg', 'created_at' => now(), 'updated_at' => now()]);
 
         // Form Daily Supervisor: kolom wajib diisi, kecuali foto (opsional); planning pindah ke Form Rekapan
         $full = fn (array $c = []) => array_merge([
-            'check_time' => '08:15', 'machine_id' => $m->id, 'customer' => 'PT. RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
-            'd1' => 10.02, 'd2' => 10.01, 'd3' => 10, 'd4' => 10.02,
-            'thickness_mm' => 1.3, 'ib_height_mm' => 0.2, 'length_mm' => 862, 'jig_option_id' => $jigIn->id, 'visual_option_id' => $visualNg->id,
+            'machine_id' => $m->id, 'customer' => 'PT. RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
+            'd1' => '10,02', 'd2' => 10.01, 'd3' => 10, 'd4' => 10.02,
+            'thickness_mm' => 1.3, 'ib_height_mm' => '-0,2', 'p1' => '28,12', 'p2' => '28,1', 'p3' => 28,
+            'jig_option_ids' => [$jigIn->id, $jigLength->id], 'jig_sizes' => [$jigIn->id => 'Ø12'], 'visual_option_id' => $visualNg->id,
             'compliance_option_ids' => [$apd->id, $fiveR->id], 'actual_cutting' => 300, 'problem' => 'Tidak ada', 'attachments' => [$photo()],
         ], $c);
         $this->actingAs($karu)->postJson('/forms/evaluasi', [
             'form_date' => now()->toDateString(), 'shift' => 1,
             'checks' => [['machine_id' => $m->id]],
         ])->assertStatus(422)->assertJsonValidationErrors([
-            'checks.0.check_time', 'checks.0.customer', 'checks.0.dimension', 'checks.0.d1',
-            'checks.0.length_mm', 'checks.0.actual_cutting', 'checks.0.problem',
-        ])->assertJsonMissingValidationErrors(['checks.0.planned_start', 'checks.0.planned_qty', 'checks.0.attachments']);
+            'checks.0.customer', 'checks.0.dimension', 'checks.0.d1',
+            'checks.0.p1', 'checks.0.p2', 'checks.0.p3', 'checks.0.actual_cutting', 'checks.0.problem',
+        ])->assertJsonMissingValidationErrors(['checks.0.check_time', 'checks.0.planned_start', 'checks.0.planned_qty', 'checks.0.attachments']);
+        // maksimal 2 angka di belakang koma; JIG In wajib disertai ukuran jig
         $this->actingAs($karu)->postJson('/forms/evaluasi', [
             'form_date' => now()->toDateString(), 'shift' => 1,
-            'checks' => [$full(['jig_option_id' => null, 'visual_option_id' => null, 'compliance_option_ids' => []])],
-        ])->assertStatus(422)->assertJsonValidationErrors(['checks.0.jig_option_id', 'checks.0.visual_option_id', 'checks.0.compliance_option_ids']);
+            'checks' => [$full(['p1' => '28,123'])],
+        ])->assertStatus(422)->assertJsonValidationErrors('checks.0.p1');
+        $this->actingAs($karu)->postJson('/forms/evaluasi', [
+            'form_date' => now()->toDateString(), 'shift' => 1,
+            'checks' => [$full(['jig_sizes' => []])],
+        ])->assertStatus(422)->assertJsonValidationErrors("checks.0.jig_sizes.{$jigIn->id}");
+        $this->actingAs($karu)->postJson('/forms/evaluasi', [
+            'form_date' => now()->toDateString(), 'shift' => 1,
+            'checks' => [$full(['jig_option_ids' => [], 'visual_option_id' => null, 'compliance_option_ids' => []])],
+        ])->assertStatus(422)->assertJsonValidationErrors(['checks.0.jig_option_ids', 'checks.0.visual_option_id', 'checks.0.compliance_option_ids']);
 
         $this->actingAs($karu)->postJson('/forms/evaluasi', [
             'form_date' => now()->toDateString(), 'shift' => 1,
             'checks' => [
                 $full(),
-                $full(['check_time' => '10:30', 'jig_option_id' => null, 'jig_other' => 'JIG khusus', 'problem' => 'Burry', 'compliance_option_ids' => [$apd->id], 'attachments' => []]),
+                $full(['check_time' => '01:00', 'jig_option_ids' => [], 'jig_other' => 'JIG khusus', 'problem' => 'Burry', 'compliance_option_ids' => [$apd->id], 'attachments' => []]),
             ],
         ])->assertOk();
+
+        // jam cek diambil dari jam simpan (WIB), bukan dari isian; angka berkoma & IB minus tersimpan
+        $first = EvaluationCheck::where('seq', 1)->firstOrFail();
+        $this->assertSame('Asia/Jakarta', now()->getTimezone()->getName());
+        $this->assertSame(['15:00', '15:00'], EvaluationCheck::orderBy('seq')->pluck('check_time')->map(fn ($t) => substr($t, 0, 5))->all());
+        $this->assertEquals([10.02, -0.2, 28.12, 28.1, 28.0], [(float) $first->d1, (float) $first->ib_height_mm, (float) $first->p1, (float) $first->p2, (float) $first->p3]);
+        $this->assertSame('JIG In (Ø12), JIG Panjang', $first->jigText());
 
         $this->assertDatabaseCount('evaluation_checks', 2);
         $this->assertDatabaseHas('evaluation_checks', ['seq' => 2, 'jig_other' => 'JIG khusus']);
@@ -218,7 +252,8 @@ class AccessAndFormsTest extends TestCase
 
         // export ke template PDR/PP/13 yang sudah terisi
         $form = EvaluationForm::first();
-        $res = $this->get("/forms/evaluasi/{$form->id}/export")->assertOk();
+        $this->actingAs($karu)->get("/forms/evaluasi/{$form->id}/export")->assertForbidden(); // karu tidak bisa export
+        $res = $this->actingAs($this->makeUser('produksi'))->get("/forms/evaluasi/{$form->id}/export")->assertOk();
         $tmp = tempnam(sys_get_temp_dir(), 'pdr').'.xlsx';
         file_put_contents($tmp, $res->streamedContent());
         $ws = IOFactory::load($tmp)->getSheet(0);
@@ -226,12 +261,13 @@ class AccessAndFormsTest extends TestCase
         $this->assertSame('CUTP-501', $ws->getCell('B11')->getValue());
         $this->assertSame('Cust : RINNAI INDONESIA', $ws->getCell('C11')->getValue());
         $this->assertSame('NG', $ws->getCell('L11')->getValue());
+        $this->assertSame('15:00 ✗', $ws->getCell('A11')->getFormattedValue(), 'visual NG: silang merah di samping jam');
+        $this->assertSame('DC2626', $ws->getStyle('A11')->getFont()->getColor()->getRGB());
         $this->assertStringContainsString('Penggunaan APD, 5R', $ws->getCell('N11')->getValue());
         $this->assertStringContainsString('Foto: '.route('attachments.show', DB::table('attachments')->whereNotNull('attachable_id')->value('id')), $ws->getCell('P11')->getValue());
-        $this->assertStringContainsString('Jig: JIG khusus', $ws->getCell('P13')->getValue());
-
-        // karu lain tidak boleh mengunduh form ini
-        $this->actingAs($this->makeUser('karu'))->get("/forms/evaluasi/{$form->id}/export")->assertForbidden();
+        $this->assertSame('In/Out : ✓ In (Ø12)', $ws->getCell('K11')->getValue());
+        $this->assertSame('28,12 / 28,1 / 28', $ws->getCell('J11')->getValue());
+        $this->assertStringContainsString('Jig: Lainnya: JIG khusus', $ws->getCell('P13')->getValue());
     }
 
     public function test_master_manages_employees_and_accounts(): void

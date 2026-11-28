@@ -5,7 +5,9 @@
     $groups = \App\Models\FormOption::whereIn('group', ['jig', 'visual', 'compliance'])->whereNull('machine_type')
         ->where('is_active', true)->orderBy('sort')->get()->groupBy('group');
     $hasOd = $checks->contains(fn ($c) => $c->od_mm !== null);
-    $measures = array_merge($hasOd ? [['od_mm', 'OD']] : [], [['d1', 'D1'], ['d2', 'D2'], ['d3', 'D3'], ['d4', 'D4'], ['thickness_mm', 'Tebal'], ['ib_height_mm', 'Tinggi IB'], ['length_mm', 'Panjang']]);
+    $measures = array_merge($hasOd ? [['od_mm', 'OD']] : [], [['d1', 'D1'], ['d2', 'D2'], ['d3', 'D3'], ['d4', 'D4'], ['thickness_mm', 'Tebal'], ['ib_height_mm', 'Tinggi IB']],
+        $checks->contains(fn ($c) => $c->length_mm !== null) ? [['length_mm', 'Panjang']] : [], // data lama: satu kolom panjang
+        [['p1', 'P1'], ['p2', 'P2'], ['p3', 'P3']]);
     $areaName = $area?->name ?? 'Tanpa area';
     $user = auth()->user();
 @endphp
@@ -22,10 +24,10 @@
             </div>
             <div class="flex flex-wrap gap-2">
                 <a href="{{ route('forms.evaluation.day', $date->toDateString()) }}" class="btn"><x-icon name="arrow-left" :size="16" />Pilih area</a>
-                @if ($checks->isNotEmpty())
+                @if ($checks->isNotEmpty() && $user->hasRole('produksi'))
                     <a href="{{ route('forms.evaluation.area-export', [$date->toDateString(), $areaKey]) }}" class="btn"><x-icon name="download" :size="16" />Export Excel</a>
                 @endif
-                @if ($canCreate && $area && $user->canInputArea($area->id))
+                @if ($canCreate && $area)
                     <a href="{{ route('forms.evaluation.create', ['date' => $date->toDateString(), 'area_id' => $area->id]) }}" class="btn btn-primary"><x-icon name="plus" :size="16" />Tambah pengecekan</a>
                 @endif
             </div>
@@ -73,7 +75,7 @@
                             <tr>
                                 <td class="sheet-sticky">
                                     <div class="text-[11px] font-semibold" style="color:var(--muted)">#{{ $i + 1 }}</div>
-                                    <div class="font-semibold tabular-nums">{{ $c->check_time ? substr($c->check_time, 0, 5) : '–' }}</div>
+                                    <div class="font-semibold tabular-nums flex items-center gap-1.5">{{ $c->check_time ? substr($c->check_time, 0, 5) : '–' }}@if ($vs = $c->visualStatus())<span class="visual-mark {{ $vs }}" title="Visual {{ strtoupper($vs) }}" aria-label="Visual {{ strtoupper($vs) }}"><x-icon :name="$vs === 'ok' ? 'check' : 'x'" :size="12" :stroke="3" /></span>@endif</div>
                                 </td>
                                 <td>
                                     <div class="font-medium">{{ $c->form->user?->name ?? '–' }}</div>
@@ -88,9 +90,8 @@
                                 @foreach ($measures as [$k, $l])
                                     <td class="text-right tabular-nums">{{ $n($c->{$k}) }}</td>
                                 @endforeach
-                                @foreach (['jig', 'visual'] as $g)
-                                    <td>@include('forms.evaluation._ticks_read', ['g' => $g])</td>
-                                @endforeach
+                                <td>@include('forms.evaluation._jigs_read')</td>
+                                <td>@include('forms.evaluation._ticks_read', ['g' => 'visual'])</td>
                                 <td class="text-right tabular-nums">{{ $c->actual_cutting !== null ? number_format($c->actual_cutting, 0, ',', '.') : '–' }}</td>
                                 <td>@include('forms.evaluation._ticks_read_multi')</td>
                                 <td class="whitespace-pre-line">{{ $c->problem ?: '–' }}</td>

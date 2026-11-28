@@ -87,7 +87,7 @@ class MonitoringDailyService
 
     // ---------------------------------------------------------------- rumus
 
-    /** TOTAL PC satu baris form = OK + 2nd Grade + NG. */
+    /** TOTAL PC satu baris form = OK + Reject (kolom second_grade_qty) + NG. */
     public static function totalPcs(?int $ok, ?int $secondGrade, ?int $ng): int
     {
         return (int) $ok + (int) $secondGrade + (int) $ng;

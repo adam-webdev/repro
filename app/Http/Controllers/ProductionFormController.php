@@ -52,7 +52,7 @@ class ProductionFormController extends Controller
             $writer->addRow(Row::fromValuesWithStyle([
                 'Tanggal', 'Shift', 'Karu', 'Area', 'Mesin', 'Jenis Mesin', 'No. PRO', 'Dimensi', 'Start Jam Planning', 'Qty Planning (pcs)',
                 'Waktu Kerja (mnt)', 'Cutting Time (mnt)', 'Std Output (pcs/jam)', 'Act Output (pcs/jam)', 'Hasil OK (pcs)',
-                'Reject (pcs)', 'Hasil NC (pcs)', 'Productivity %', 'Set Up (mnt)', 'Bongkar (mnt)', 'Downtime (mnt)',
+                'Reject (pcs)', 'Alasan Reject', 'Hasil NC (pcs)', 'Productivity %', 'Set Up (mnt)', 'Bongkar (mnt)', 'Downtime (mnt)',
                 'Rincian Set Up / Bongkar / DT', 'Keterangan',
             ], (new Style)->withFontBold(true)));
 
@@ -68,7 +68,7 @@ class ProductionFormController extends Controller
                         $it->planned_start ? substr($it->planned_start, 0, 5) : null, $it->planned_qty,
                         $it->working_minutes, $it->cutting_minutes,
                         $it->std_output !== null ? (float) $it->std_output : null, $it->act_output !== null ? (float) $it->act_output : null,
-                        $it->ok_qty, $it->second_grade_qty, $it->nc_qty,
+                        $it->ok_qty, $it->second_grade_qty, $it->reject_reason, $it->nc_qty,
                         MonitoringDailyService::productivity($pcs, (float) $it->planned_qty),
                         $minutes('setup'), $minutes('bongkar'), $minutes('dt'),
                         $it->problems->map(fn ($p) => (['setup' => 'Set Up', 'bongkar' => 'Bongkar'][$p->kind] ?? 'DT').': '
@@ -124,7 +124,7 @@ class ProductionFormController extends Controller
                     'working_minutes' => $it->working_minutes, 'cutting_minutes' => $it->cutting_minutes,
                     'std_output' => $it->std_output !== null ? (float) $it->std_output : null,
                     'act_output' => $it->act_output !== null ? (float) $it->act_output : null,
-                    'ok_qty' => $it->ok_qty, 'second_grade_qty' => $it->second_grade_qty, 'nc_qty' => $it->nc_qty, 'note' => $it->note,
+                    'ok_qty' => $it->ok_qty, 'second_grade_qty' => $it->second_grade_qty, 'reject_reason' => $it->reject_reason, 'nc_qty' => $it->nc_qty, 'note' => $it->note,
                     'problems' => $it->problems->map(fn ($p) => [
                         'kind' => $p->kind, 'option_id' => $p->form_option_id ?? ($p->other_text ? 'other' : ''),
                         'other_text' => $p->other_text, 'minutes' => $p->minutes,

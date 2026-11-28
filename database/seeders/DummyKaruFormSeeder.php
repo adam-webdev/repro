@@ -130,14 +130,18 @@ class DummyKaruFormSeeder extends Seeder
             'customer_id' => $customers->isNotEmpty() ? $customers->random() : null,
             'dimension' => 'Ø'.str_replace('.', ',', (string) $od).' × 1,2 × '.$length,
             'd1' => $dev(), 'd2' => $dev(), 'd3' => $dev(), 'd4' => $dev(),
-            'thickness_mm' => 1.2, 'ib_height_mm' => round(random_int(10, 30) / 100, 2), 'length_mm' => $length + random_int(-1, 1) / 2,
-            'jig_option_id' => $opts->get('jig', collect())->random()?->id,
+            'thickness_mm' => 1.2, 'ib_height_mm' => round(random_int(-10, 30) / 100, 2),
+            'p1' => $length + random_int(-5, 5) / 10, 'p2' => $length + random_int(-5, 5) / 10, 'p3' => $length + random_int(-5, 5) / 10,
             'visual_option_id' => $visualId,
             'actual_cutting' => random_int(80, 900),
             'problem' => self::TAG.' '.self::PROBLEMS[array_rand(self::PROBLEMS)],
             'pipe_photo_url' => $withPipe ? 'https://picsum.photos/seed/pipa'.$form->id.'-'.$seq.'/800/600' : null,
         ]);
         $check->compliances()->sync($compliance);
+        $jig = $opts->get('jig', collect())->isNotEmpty() ? $opts->get('jig')->random() : null;
+        if ($jig) {
+            $check->jigs()->sync([$jig->id => ['size' => in_array($jig->label, FormOption::JIG_WITH_SIZE, true) ? 'Ø'.str_replace('.', ',', (string) $od) : null]]);
+        }
 
         // sebagian pengecekan punya "foto" evidence (file dummy tidak ada; hanya untuk mencoba link di export)
         if (random_int(1, 3) === 1) {
@@ -174,19 +178,25 @@ class DummyKaruFormSeeder extends Seeder
                     $std = random_int(80, 200);
                     $plan = (int) round($std * $work / 60);
                     $ok = (int) round($plan * random_int(70, 105) / 100);
+                    $reject = random_int(0, 20);
                     $item = $form->items()->create([
                         'machine_id' => $machine->id, 'machine_type' => Machine::formType($machine->code), 'order_no' => (string) random_int(400000, 499999),
                         'dimension' => 'Ø'.random_int(10, 25).' × 1,2 × '.random_int(400, 1200),
                         'planned_start' => sprintf('%02d:%02d', $shift === 1 ? 7 + $sort * 3 : 18 + $sort * 3, [0, 15, 30][random_int(0, 2)]),
                         'planned_qty' => $plan, 'working_minutes' => $work, 'cutting_minutes' => $cut, 'std_output' => $std,
-                        'act_output' => round($ok / ($work / 60), 1), 'ok_qty' => $ok, 'second_grade_qty' => random_int(0, 20), 'nc_qty' => random_int(0, 40),
+                        'act_output' => round($ok / ($work / 60), 1), 'ok_qty' => $ok, 'second_grade_qty' => $reject,
+                        'reject_reason' => $reject ? ['Burry', 'Penyok', 'Panjang kurang', 'Gores'][random_int(0, 3)] : null, 'nc_qty' => random_int(0, 40),
                         'note' => self::TAG, 'sort' => $sort,
                     ]);
-                    if ($setup->isNotEmpty()) {
-                        $item->problems()->create(['kind' => 'setup', 'form_option_id' => $setup->random()->id, 'minutes' => random_int(10, 40)]);
+                    // Set Up + DT tidak melebihi selisih waktu kerja − cutting time
+                    $spare = $work - $cut;
+                    $setupMinutes = min(random_int(10, 40), $spare);
+                    if ($setup->isNotEmpty() && $setupMinutes > 0) {
+                        $item->problems()->create(['kind' => 'setup', 'form_option_id' => $setup->random()->id, 'minutes' => $setupMinutes]);
                     }
-                    if ($dt->isNotEmpty() && $work - $cut > 20) {
-                        $item->problems()->create(['kind' => 'dt', 'form_option_id' => $dt->random()->id, 'minutes' => $work - $cut - 15]);
+                    $dtMinutes = $spare - $setupMinutes - random_int(0, 10);
+                    if ($dt->isNotEmpty() && $dtMinutes > 0) {
+                        $item->problems()->create(['kind' => 'dt', 'form_option_id' => $dt->random()->id, 'minutes' => $dtMinutes]);
                     }
                 }
             }

@@ -25,14 +25,55 @@ class EvaluationCheck extends Model
         return $this->belongsTo(Customer::class);
     }
 
+    /** Jig lama (satu pilihan). Data baru memakai jigs(). */
     public function jig()
     {
         return $this->belongsTo(FormOption::class, 'jig_option_id');
     }
 
+    /** Jig yang dicentang (boleh lebih dari satu); JIG In / JIG Out membawa ukuran jig di pivot. */
+    public function jigs()
+    {
+        return $this->belongsToMany(FormOption::class, 'evaluation_check_jigs', 'evaluation_check_id', 'form_option_id')
+            ->withPivot('size')->orderBy('sort');
+    }
+
+    /** Teks jig untuk tampilan / log / export, mis. "JIG In (Ø12), JIG Panjang, Lainnya: ...". */
+    public function jigText(): ?string
+    {
+        $labels = $this->jigs->map(fn (FormOption $o) => $o->label.($o->pivot->size ? ' ('.$o->pivot->size.')' : ''));
+        if ($this->jig_other) {
+            $labels->push('Lainnya: '.$this->jig_other);
+        }
+
+        return $labels->isNotEmpty() ? $labels->implode(', ') : null;
+    }
+
+    /** Panjang hasil ukur: P1 / P2 / P3 (data lama: satu kolom panjang). */
+    public function lengthText(): ?string
+    {
+        $fmt = fn ($v) => rtrim(rtrim(number_format((float) $v, 2, ',', ''), '0'), ',');
+        $values = collect([$this->p1, $this->p2, $this->p3])->filter(fn ($v) => $v !== null)->map($fmt);
+        if ($values->isEmpty() && $this->length_mm !== null) {
+            return $fmt($this->length_mm);
+        }
+
+        return $values->isNotEmpty() ? $values->implode(' / ') : null;
+    }
+
     public function visual()
     {
         return $this->belongsTo(FormOption::class, 'visual_option_id');
+    }
+
+    /** Hasil visual untuk tanda di samping jam cek: ok (centang hijau), ng (silang merah), null = lainnya / kosong. */
+    public function visualStatus(): ?string
+    {
+        return match (strtoupper(trim((string) $this->visual?->label))) {
+            'OK' => 'ok',
+            'NG' => 'ng',
+            default => null,
+        };
     }
 
     /** Kontrol kepatuhan: boleh lebih dari satu centang. */

@@ -28,6 +28,11 @@
                         </div>
                     @endforeach
                 </div>
+                @if ($it->reject_reason)
+                    <div class="rounded-xl px-3 py-2.5 text-[13.5px]" style="background:var(--surface-2)">
+                        <span class="text-[11.5px] block" style="color:var(--muted)">Alasan reject</span>{{ $it->reject_reason }}
+                    </div>
+                @endif
 
                 <div>
                     <div class="label">Problem</div>

@@ -1,4 +1,4 @@
-{{-- Foto bukti: $row = nama variabel Alpine (it / c). Bisa banyak foto, dari kamera atau galeri. --}}
+{{-- Foto bukti: $row = nama variabel Alpine (it / c). Bisa banyak foto, langsung dari kamera (tanpa galeri). --}}
 <div>
     <span class="label">{{ $label ?? 'Dokumentasi foto' }}</span>
     <div class="flex flex-wrap gap-2">
@@ -16,10 +16,6 @@
             <span class="grid justify-items-center gap-1 text-[11.5px]" style="color:var(--ink-2)"><x-icon name="camera" :size="20" />Kamera</span>
             <input type="file" accept="image/*" capture="environment" class="hidden" @change="addPhotos({{ $row }}, $event.target.files); $event.target.value = ''">
         </label>
-        <label class="thumb grid place-items-center cursor-pointer text-center" style="border-style:dashed">
-            <span class="grid justify-items-center gap-1 text-[11.5px]" style="color:var(--ink-2)"><x-icon name="image-plus" :size="20" />Galeri</span>
-            <input type="file" accept="image/*" multiple class="hidden" @change="addPhotos({{ $row }}, $event.target.files); $event.target.value = ''">
-        </label>
     </div>
-    <p class="text-[11.5px] mt-1" style="color:var(--muted)">Kamera = langsung foto, Galeri = pilih foto yang sudah ada (bisa beberapa). Foto otomatis diperkecil sebelum diunggah.</p>
+    <p class="text-[11.5px] mt-1" style="color:var(--muted)">Foto diambil langsung dari kamera. Foto otomatis diperkecil sebelum diunggah.</p>
 </div>

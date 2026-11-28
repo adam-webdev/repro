@@ -75,17 +75,17 @@
                         <input type="hidden" name="is_substitute" value="0">
                         <input type="checkbox" name="is_substitute" value="1" x-model="substitute" class="mt-1">
                         <span><span class="block font-semibold">Karu pengganti</span>
-                            <span class="block text-[12px]" style="color:var(--muted)">Bisa input di semua area untuk menggantikan karu yang tidak masuk. Akun baru dibuat <b>nonaktif</b>; aktifkan dari daftar Karyawan saat dia bertugas.</span></span>
+                            <span class="block text-[12px]" style="color:var(--muted)">Akun khusus untuk menggantikan karu yang tidak masuk. Akun baru dibuat <b>nonaktif</b>; aktifkan dari daftar Karyawan saat dia bertugas.</span></span>
                     </label>
                     <label class="block" x-show="!substitute">
                         <span class="label">Area tugas</span>
                         <select name="area_id" class="input w-full sm:w-[220px] @error('area_id') is-invalid @enderror">
-                            <option value="">Bebas (semua area)</option>
+                            <option value="">Tidak ditentukan</option>
                             @foreach (\App\Models\Area::orderBy('name')->get(['id', 'name']) as $a)
                                 <option value="{{ $a->id }}" @selected((string) old('area_id', $user?->area_id) === (string) $a->id)>{{ $a->name }}</option>
                             @endforeach
                         </select>
-                        <span class="block text-[12px] mt-1" style="color:var(--muted)">Jika diisi, karu hanya bisa input di area ini (area terkunci di form). Kosongkan untuk karu bagian lain, mis. Repair / Packing.</span>
+                        <span class="block text-[12px] mt-1" style="color:var(--muted)">Hanya sebagai info &amp; isian awal area di form. Semua karu tetap bisa input di semua area dan semua mesin.</span>
                     </label>
                 </div>
                 @if ($user)

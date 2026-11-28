@@ -28,7 +28,7 @@ class EvaluationSheetExport
 
     public function build(EvaluationForm $form): Spreadsheet
     {
-        $form->loadMissing(['user.employee', 'area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
+        $form->loadMissing(['user.employee', 'area', 'checks.machine', 'checks.customer', 'checks.jigs', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
         $karu = $form->user?->name;
         if ($code = $form->user?->employee?->code) {
             $karu .= ' ('.$code.')';
@@ -141,14 +141,29 @@ class EvaluationSheetExport
         if ($c->check_time) {
             [$h, $m] = array_map('intval', explode(':', $c->check_time));
             $ws->setCellValue("A{$r}", ($h * 60 + $m) / 1440); // jam Excel = pecahan hari
-            $ws->getStyle("A{$r}")->getNumberFormat()->setFormatCode('hh:mm');
+            // Visual OK = centang hijau, NG = silang merah di samping jam
+            $ws->getStyle("A{$r}")->getNumberFormat()->setFormatCode(match ($c->visualStatus()) {
+                'ok' => 'hh:mm" ✓"',
+                'ng' => 'hh:mm" ✗"',
+                default => 'hh:mm',
+            });
+            if ($color = ['ok' => '15803D', 'ng' => 'DC2626'][$c->visualStatus()] ?? null) {
+                $ws->getStyle("A{$r}")->getFont()->getColor()->setRGB($color);
+                $ws->getStyle("A{$r}")->getFont()->setBold(true);
+            }
         }
         $ws->setCellValue("B{$r}", $c->machine?->code);
         $ws->setCellValue("C{$r}", 'Cust : '.($c->customer?->name ?? ''));
         $ws->setCellValue("C{$r2}", 'Size : '.($c->dimension ?? ''));
 
-        foreach (['D' => $c->d1, 'E' => $c->d2, 'F' => $c->d3, 'G' => $c->d4, 'H' => $c->thickness_mm, 'I' => $c->ib_height_mm, 'J' => $c->length_mm] as $col => $v) {
+        foreach (['D' => $c->d1, 'E' => $c->d2, 'F' => $c->d3, 'G' => $c->d4, 'H' => $c->thickness_mm, 'I' => $c->ib_height_mm] as $col => $v) {
             $ws->setCellValue("{$col}{$r}", $num($v));
+        }
+        // Panjang: P1 / P2 / P3 dalam satu kotak (data lama: satu angka)
+        $hasP = $c->p1 !== null || $c->p2 !== null || $c->p3 !== null;
+        $ws->setCellValue("J{$r}", $hasP ? $c->lengthText() : $num($c->length_mm));
+        if ($hasP) {
+            $ws->getStyle("J{$r}")->getAlignment()->setWrapText(true);
         }
 
         // Jig: lembar kertas punya dua kotak, "In/Out" dan "Panjang"; pilihan lain dicatat di kolom keterangan
@@ -156,13 +171,32 @@ class EvaluationSheetExport
         if ($withKaru) {
             $notes[] = 'Karu: '.($c->form?->karuLabel() ?? '-').' · Shift '.$c->form?->shift;
         }
-        $jig = $c->jig?->label;
-        if ($jig && preg_match('/jig (in|out)|in\/out/i', $jig)) {
-            $ws->setCellValue("K{$r}", 'In/Out : '.self::TICK.(preg_match('/jig (in|out)$/i', $jig, $m) ? ' '.ucfirst(strtolower($m[1])) : ''));
-        } elseif ($jig && stripos($jig, 'panjang') !== false) {
+        // Jig boleh lebih dari satu: In / Out (dengan ukuran) di kotak atas, Panjang di kotak bawah, sisanya di keterangan
+        $inOut = $others = [];
+        $panjang = false;
+        foreach ($c->jigs as $o) {
+            $size = $o->pivot->size ? ' ('.$o->pivot->size.')' : '';
+            if (preg_match('/jig (in|out)$/i', $o->label, $m)) {
+                $inOut[] = ucfirst(strtolower($m[1])).$size;
+            } elseif (preg_match('/in\/out/i', $o->label)) {
+                $inOut[] = 'In/Out'.$size;
+            } elseif (stripos($o->label, 'panjang') !== false) {
+                $panjang = true;
+            } else {
+                $others[] = $o->label.$size;
+            }
+        }
+        if ($inOut) {
+            $ws->setCellValue("K{$r}", 'In/Out : '.self::TICK.' '.implode(', ', $inOut));
+        }
+        if ($panjang) {
             $ws->setCellValue("K{$r2}", 'Panjang : '.self::TICK);
-        } elseif ($jig || $c->jig_other) {
-            $notes[] = 'Jig: '.($jig ?? $c->jig_other);
+        }
+        if ($c->jig_other) {
+            $others[] = 'Lainnya: '.$c->jig_other;
+        }
+        if ($others) {
+            $notes[] = 'Jig: '.implode(', ', $others);
         }
 
         $ws->setCellValue("L{$r}", $c->visual?->label ?? $c->visual_other);

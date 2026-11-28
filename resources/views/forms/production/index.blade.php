@@ -1,6 +1,8 @@
 <x-layouts.app title="Form Rekapan">
     <x-slot:actions>
-        <a href="{{ route('forms.production.export', request()->only(['from', 'to', 'shift', 'area_id', 'user_id', 'machine_id'])) }}" class="btn"><x-icon name="download" :size="16" /><span class="hidden sm:inline">Export Excel</span></a>
+        @if (auth()->user()->hasRole('produksi'))
+            <a href="{{ route('forms.production.export', request()->only(['from', 'to', 'shift', 'area_id', 'user_id', 'machine_id'])) }}" class="btn"><x-icon name="download" :size="16" /><span class="hidden sm:inline">Export Excel</span></a>
+        @endif
         @if ($canCreate)
             <a href="{{ route('forms.production.create') }}" class="btn btn-primary"><x-icon name="plus" :size="16" /><span class="hidden sm:inline">Isi form</span></a>
         @endif

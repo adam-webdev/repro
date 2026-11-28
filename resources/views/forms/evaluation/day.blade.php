@@ -21,18 +21,28 @@
                     @if ($s)
                         <span class="chip chip-ok">{{ $s->checks }} pengecekan</span>
                         <span class="text-[12.5px]" style="color:var(--ink-2)">Shift {{ implode(', ', $s->shifts) }}</span>
-                        <span class="text-[12.5px] leading-snug line-clamp-2" style="color:var(--muted)" title="{{ implode(', ', $s->karus) }}">{{ implode(', ', $s->karus) }}</span>
                     @else
                         <span class="chip chip-muted">Belum ada pengecekan</span>
                     @endif
                     <span class="text-[12.5px] font-medium inline-flex items-center gap-1 mt-1" style="color:var(--ink-2)">Lihat detail <x-icon name="chevron-right" :size="15" /></span>
                 </a>
-                @if ($canCreate && $card['key'] !== \App\Http\Controllers\EvaluationFormController::NO_AREA && auth()->user()->canInputArea((int) $card['key']))
+                @if ($canCreate && $card['key'] !== \App\Http\Controllers\EvaluationFormController::NO_AREA)
                     <a href="{{ route('forms.evaluation.create', ['date' => $date->toDateString(), 'area_id' => $card['key']]) }}"
                        class="icon-btn absolute top-3 right-3 z-10" title="Tambah pengecekan di {{ $card['name'] }}" aria-label="Tambah pengecekan di {{ $card['name'] }}">
                         <x-icon name="plus" :size="18" />
                     </a>
                 @endif
+            </div>
+        @endforeach
+
+        {{-- Repair & Packing: form & data baru (proyek berikutnya), belum bisa dibuka --}}
+        @foreach ([['Repair', 'wrench'], ['Packing', 'package']] as [$name, $icon])
+            <div class="card h-full flex flex-col items-center justify-center text-center gap-2 p-6 min-h-[230px] opacity-60 cursor-not-allowed select-none"
+                 aria-disabled="true" title="{{ $name }}: segera hadir">
+                <span class="grid place-items-center w-14 h-14 rounded-2xl" style="background:var(--surface-2)"><x-icon :name="$icon" :size="26" /></span>
+                <span class="text-[22px] font-semibold leading-tight">{{ $name }}</span>
+                <span class="chip chip-muted">Segera hadir</span>
+                <span class="text-[12.5px]" style="color:var(--muted)">Form &amp; data {{ strtolower($name) }} sedang disiapkan</span>
             </div>
         @endforeach
     </div>

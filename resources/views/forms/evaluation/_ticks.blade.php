@@ -2,7 +2,7 @@
      Tersimpan satu pilihan per grup: mencentang satu opsi melepas yang lain, ketuk lagi untuk mengosongkan. --}}
 <div class="space-y-1">
     <template x-for="o in opts('{{ $g }}')" :key="o.id">
-        <label class="tick">
+        <label class="tick" @if ($g === 'visual') :class="visualTone(o.label)" @endif>
             <input type="checkbox" :checked="String(c.{{ $g }}_option_id) === String(o.id)"
                    @change="c.{{ $g }}_option_id = $event.target.checked ? o.id : ''">
             <span x-text="o.label"></span>

@@ -26,15 +26,18 @@ class KaruFormService
     }
 
     /**
-     * Aturan area untuk bagian atas form: area terkunci (karu tetap) atau form pengganti.
+     * Info bagian atas form: akun karu pengganti (area wajib dipilih) & area awal (area tugas karu).
+     * Semua karu bisa input di semua area & mesin.
      *
-     * @return array{lockedAreaId: ?int, bySubstitute: bool}
+     * @return array{substituteAccount: bool, defaultAreaId: ?int}
      */
     public static function headerContext(User $user, ?Model $form): array
     {
+        $owner = $form?->user ?? $user;
+
         return [
-            'lockedAreaId' => $user->lockedAreaId(),
-            'bySubstitute' => $form ? (bool) $form->by_substitute : $user->isSubstitute(),
+            'substituteAccount' => $owner->isSubstitute(),
+            'defaultAreaId' => $form ? null : $owner->area_id,
         ];
     }
 
@@ -50,6 +53,7 @@ class KaruFormService
             'options' => $opts->groupBy('group')->map(fn ($g) => $g->map(fn ($o) => ['id' => $o->id, 'type' => $o->machine_type, 'label' => $o->label])->values()),
             'customers' => Customer::orderBy('name')->pluck('name'),
             'visualPipeId' => FormOption::visualPipeId(),
+            'jigSizeIds' => FormOption::jigSizeIds(),
         ];
     }
 
@@ -71,6 +75,7 @@ class KaruFormService
             'items.*.act_output' => 'required|numeric|min:0|max:100000',
             'items.*.ok_qty' => 'required|integer|min:0|max:10000000',
             'items.*.second_grade_qty' => 'nullable|integer|min:0|max:10000000',
+            'items.*.reject_reason' => 'nullable|string|max:255',
             'items.*.nc_qty' => 'nullable|integer|min:0|max:10000000',
             'items.*.note' => 'nullable|string|max:255',
             'items.*.problems' => 'nullable|array|max:30',
@@ -88,6 +93,12 @@ class KaruFormService
         foreach ($d['items'] as $i => $it) {
             if (($it['cutting_minutes'] ?? 0) > ($it['working_minutes'] ?? PHP_INT_MAX)) {
                 $errors["items.$i.cutting_minutes"] = 'Cutting time tidak boleh lebih besar dari waktu kerja.';
+            } elseif (($used = self::problemMinutes($it)) > ($spare = (int) $it['working_minutes'] - (int) $it['cutting_minutes'])) {
+                $errors["items.$i.problem_minutes"] = "Total menit Set Up + Bongkar + Downtime ({$used} mnt) melebihi sisa waktu kerja − cutting time ({$spare} mnt). "
+                    .'Kurangi menit salah satunya.';
+            }
+            if (($it['second_grade_qty'] ?? 0) > 0 && blank($it['reject_reason'] ?? null)) {
+                $errors["items.$i.reject_reason"] = 'Alasan reject wajib diisi.';
             }
             foreach ($it['problems'] ?? [] as $j => $p) {
                 $opt = isset($p['option_id']) ? $valid[$p['option_id']] ?? null : null;
@@ -126,6 +137,7 @@ class KaruFormService
                     'working_minutes' => $it['working_minutes'] ?? null, 'cutting_minutes' => $it['cutting_minutes'] ?? null,
                     'std_output' => $it['std_output'] ?? null, 'act_output' => $it['act_output'] ?? null,
                     'ok_qty' => $it['ok_qty'] ?? null, 'second_grade_qty' => $it['second_grade_qty'] ?? null, 'nc_qty' => $it['nc_qty'] ?? null,
+                    'reject_reason' => ($it['second_grade_qty'] ?? 0) > 0 ? ($it['reject_reason'] ?? null) : null,
                     'note' => $it['note'] ?? null, 'sort' => $i,
                 ]);
                 foreach ($it['problems'] ?? [] as $p) {
@@ -148,19 +160,29 @@ class KaruFormService
 
     public function saveEvaluation(Request $request, ?EvaluationForm $form = null): EvaluationForm
     {
-        // Form Daily Supervisor: kolom wajib diisi kecuali foto (opsional). OD lama & planning (pindah ke Form Rekapan) tetap opsional
-        // supaya data lama tidak hilang saat diedit.
-        $dec = 'required|numeric|min:0|max:100000';
+        // Form Daily Supervisor: kolom wajib diisi kecuali foto (opsional). OD lama, panjang lama & planning (pindah ke Form Rekapan)
+        // tetap opsional supaya data lama tidak hilang saat diedit. Jam cek diisi otomatis saat disimpan (WIB).
+        $this->normalizeDecimals($request);
+        $twoDecimals = 'regex:/^-?\d+(\.\d{1,2})?$/';
+        $dec = ['required', 'numeric', 'min:0', 'max:100000', $twoDecimals];
+        // panjang: P1–P3 wajib, kecuali data lama yang masih memakai satu kolom panjang
+        $length = ['required_without:checks.*.length_mm', 'nullable', 'numeric', 'min:0', 'max:100000', $twoDecimals];
         $d = $this->validateHeader($request, $form) + $request->validate([
             'checks' => 'required|array|min:1|max:40',
-            'checks.*.check_time' => 'required|date_format:H:i',
+            'checks.*.id' => 'nullable|integer',
             'checks.*.machine_id' => 'required|integer|exists:machines,id',
             'checks.*.customer' => 'required|string|max:150',
             'checks.*.dimension' => 'required|string|max:60',
             'checks.*.planned_start' => 'nullable|date_format:H:i',
             'checks.*.od_mm' => 'nullable|numeric|min:0|max:100000', 'checks.*.d1' => $dec, 'checks.*.d2' => $dec, 'checks.*.d3' => $dec, 'checks.*.d4' => $dec,
-            'checks.*.thickness_mm' => $dec, 'checks.*.ib_height_mm' => $dec, 'checks.*.length_mm' => $dec,
-            'checks.*.jig_option_id' => 'nullable|integer|exists:form_options,id',
+            'checks.*.thickness_mm' => $dec,
+            'checks.*.ib_height_mm' => ['required', 'numeric', 'min:-100000', 'max:100000', $twoDecimals], // Tinggi IB boleh minus
+            'checks.*.p1' => $length, 'checks.*.p2' => $length, 'checks.*.p3' => $length,
+            'checks.*.length_mm' => 'nullable|numeric|min:0|max:100000',
+            'checks.*.jig_option_ids' => 'nullable|array|max:20',
+            'checks.*.jig_option_ids.*' => 'integer|exists:form_options,id',
+            'checks.*.jig_sizes' => 'nullable|array|max:20',
+            'checks.*.jig_sizes.*' => 'nullable|string|max:40',
             'checks.*.jig_other' => 'nullable|string|max:150',
             'checks.*.visual_option_id' => 'nullable|integer|exists:form_options,id',
             'checks.*.visual_other' => 'nullable|string|max:150',
@@ -179,17 +201,30 @@ class KaruFormService
 
         $groups = FormOption::pluck('group', 'id');
         $visualPipeId = FormOption::visualPipeId();
+        $jigSizeIds = FormOption::jigSizeIds();
         $errors = [];
         foreach ($d['checks'] as $i => $c) {
-            foreach (['jig' => 'Jig', 'visual' => 'Visual'] as $g => $label) {
-                $id = $c[$g.'_option_id'] ?? null;
-                if ($id && ($groups[$id] ?? null) !== $g) {
-                    $errors["checks.$i.{$g}_option_id"] = 'Pilihan tidak valid.';
-                }
-                if (! $id && blank($c[$g.'_other'] ?? null)) {
-                    $errors["checks.$i.{$g}_option_id"] = "$label wajib dicentang (atau isi Lainnya).";
+            $visualId = $c['visual_option_id'] ?? null;
+            if ($visualId && ($groups[$visualId] ?? null) !== 'visual') {
+                $errors["checks.$i.visual_option_id"] = 'Pilihan tidak valid.';
+            }
+            if (! $visualId && blank($c['visual_other'] ?? null)) {
+                $errors["checks.$i.visual_option_id"] = 'Visual wajib dicentang (atau isi Lainnya).';
+            }
+
+            // Jig: boleh lebih dari satu; JIG In / JIG Out wajib disertai ukuran jig
+            $jigIds = array_map('intval', $c['jig_option_ids'] ?? []);
+            if (! $jigIds && blank($c['jig_other'] ?? null)) {
+                $errors["checks.$i.jig_option_ids"] = 'Jig wajib dicentang minimal satu (atau isi Lainnya).';
+            }
+            foreach ($jigIds as $id) {
+                if (($groups[$id] ?? null) !== 'jig') {
+                    $errors["checks.$i.jig_option_ids"] = 'Pilihan tidak valid.';
+                } elseif (in_array($id, $jigSizeIds, true) && blank($c['jig_sizes'][$id] ?? null)) {
+                    $errors["checks.$i.jig_sizes.$id"] = 'Ukuran jig wajib diisi.';
                 }
             }
+
             if (empty($c['compliance_option_ids']) && blank($c['compliance_other'] ?? null)) {
                 $errors["checks.$i.compliance_option_ids"] = 'Kontrol kepatuhan wajib dicentang minimal satu.';
             }
@@ -210,8 +245,11 @@ class KaruFormService
         }
 
         $before = $form?->snapshot();
+        // jam cek: pengecekan lama tetap memakai jamnya, pengecekan baru = jam saat disimpan (WIB)
+        $oldTimes = $form ? $form->checks()->pluck('check_time', 'id') : collect();
+        $now = now()->format('H:i:s');
 
-        return DB::transaction(function () use ($request, $form, $d, $before, $pipeOn) {
+        return DB::transaction(function () use ($request, $form, $d, $before, $pipeOn, $jigSizeIds, $oldTimes, $now) {
             $user = $request->user();
             $form ??= new EvaluationForm(['user_id' => $user->id, 'employee_id' => $user->employee_id, 'created_by' => $user->id]);
             $form->fill([
@@ -227,14 +265,15 @@ class KaruFormService
                 $customerName = Customer::normalizeName($c['customer'] ?? null);
                 $check = $form->checks()->create([
                     'seq' => $i + 1,
-                    'check_time' => $c['check_time'] ?? null,
+                    'check_time' => $oldTimes->get($c['id'] ?? null) ?? $now,
                     'machine_id' => $c['machine_id'],
                     'customer_id' => $customerName ? Customer::firstOrCreate(['name' => $customerName])->id : null,
                     'dimension' => $c['dimension'] ?? null,
                     'planned_start' => $c['planned_start'] ?? null,
                     'od_mm' => $c['od_mm'] ?? null, 'd1' => $c['d1'] ?? null, 'd2' => $c['d2'] ?? null, 'd3' => $c['d3'] ?? null, 'd4' => $c['d4'] ?? null,
                     'thickness_mm' => $c['thickness_mm'] ?? null, 'ib_height_mm' => $c['ib_height_mm'] ?? null, 'length_mm' => $c['length_mm'] ?? null,
-                    'jig_option_id' => $c['jig_option_id'] ?? null, 'jig_other' => empty($c['jig_option_id']) ? ($c['jig_other'] ?? null) : null,
+                    'p1' => $c['p1'] ?? null, 'p2' => $c['p2'] ?? null, 'p3' => $c['p3'] ?? null,
+                    'jig_option_id' => null, 'jig_other' => $c['jig_other'] ?? null,
                     'visual_option_id' => $c['visual_option_id'] ?? null, 'visual_other' => empty($c['visual_option_id']) ? ($c['visual_other'] ?? null) : null,
                     'compliance_other' => $c['compliance_other'] ?? null,
                     'pipe_photo_url' => $pipeOn($c) ? ($c['pipe_photo_url'] ?? null) : null,
@@ -243,6 +282,9 @@ class KaruFormService
                     'problem' => $c['problem'] ?? null,
                 ]);
                 $check->compliances()->sync(array_unique($c['compliance_option_ids'] ?? []));
+                $check->jigs()->sync(collect($c['jig_option_ids'] ?? [])->map(fn ($id) => (int) $id)->unique()->mapWithKeys(fn ($id) => [
+                    $id => ['size' => in_array($id, $jigSizeIds, true) ? (trim((string) ($c['jig_sizes'][$id] ?? '')) ?: null) : null],
+                ])->all());
                 $this->attach($c['attachments'] ?? [], 'evaluation_check', $check->id);
                 if ($pipeOn($c)) {
                     $this->attach($c['pipe_attachments'] ?? [], 'evaluation_check', $check->id, Attachment::VISUAL_PIPE);
@@ -297,33 +339,55 @@ class KaruFormService
     // ------------------------------------------------------------------ helper
 
     /**
-     * Tanggal, shift, area & keterangan pengganti.
-     * Karu tetap selalu memakai area tugasnya; karu pengganti wajib memilih area dan boleh mengisi "Menggantikan".
+     * Tanggal, shift, area & keterangan pengganti. Semua karu bebas memilih area.
+     * Akun karu pengganti wajib memilih area; karu mana pun boleh mengisi "Menggantikan" bila menggantikan karu yang tidak masuk.
      *
      * @return array{form_date: string, shift: int, area_id: ?int, by_substitute: bool, substitute_for_id: ?int}
      */
     private function validateHeader(Request $request, ?Model $form): array
     {
-        $user = $request->user();
-        $bySubstitute = $form ? (bool) $form->by_substitute : $user->isSubstitute();
+        $owner = $form?->user ?? $request->user();
+        $substituteAccount = $owner->isSubstitute();
 
         $d = $request->validate([
             'form_date' => 'required|date|before_or_equal:today',
             'shift' => ['required', 'integer', Rule::in(array_keys(config('production.karu_shifts')))],
-            'area_id' => [$bySubstitute ? 'required' : 'nullable', 'integer', 'exists:areas,id'],
-            'substitute_for_id' => ['nullable', 'integer', Rule::exists('users', 'id')->where('role', 'karu')],
+            'area_id' => [$substituteAccount ? 'required' : 'nullable', 'integer', 'exists:areas,id'],
+            'substitute_for_id' => ['nullable', 'integer', Rule::notIn([$owner->id]), Rule::exists('users', 'id')->where('role', 'karu')],
         ], [
             'form_date.before_or_equal' => 'Tanggal tidak boleh melebihi hari ini.',
             'area_id.required' => 'Pilih area yang Anda gantikan.',
+            'substitute_for_id.not_in' => 'Tidak bisa menggantikan diri sendiri.',
         ], $this->attributes());
 
-        if ($locked = $user->lockedAreaId()) {
-            $d['area_id'] = $locked;
-        }
-        $d['by_substitute'] = $bySubstitute;
-        $d['substitute_for_id'] = $bySubstitute ? ($d['substitute_for_id'] ?? null) : null;
+        $d['substitute_for_id'] ??= null;
+        $d['by_substitute'] = $substituteAccount || $d['substitute_for_id'] !== null;
 
         return $d;
+    }
+
+    /** Total menit Set Up + Bongkar + Downtime satu PRO. */
+    private static function problemMinutes(array $item): int
+    {
+        return (int) collect($item['problems'] ?? [])->sum(fn ($p) => (int) ($p['minutes'] ?? 0));
+    }
+
+    /** Angka ukur boleh diketik dengan koma (mis. 28,12): ubah ke titik sebelum divalidasi. */
+    private function normalizeDecimals(Request $request): void
+    {
+        $checks = $request->input('checks');
+        if (! is_array($checks)) {
+            return;
+        }
+        foreach ($checks as $i => $c) {
+            foreach (['od_mm', 'd1', 'd2', 'd3', 'd4', 'thickness_mm', 'ib_height_mm', 'length_mm', 'p1', 'p2', 'p3'] as $k) {
+                if (is_array($c) && is_string($c[$k] ?? null)) {
+                    $v = str_replace(',', '.', preg_replace('/\s+/', '', $c[$k]));
+                    $checks[$i][$k] = $v === '' ? null : $v;
+                }
+            }
+        }
+        $request->merge(['checks' => $checks]);
     }
 
     /** Foto harus milik pengguna ini (baru diunggah) atau sudah menempel di form yang sama. */
@@ -387,10 +451,12 @@ class KaruFormService
             'items.required' => 'Tambahkan minimal satu mesin.',
             'checks.required' => 'Tambahkan minimal satu pengecekan.',
             'required' => ':attribute wajib diisi.',
+            'required_without' => ':attribute wajib diisi.',
             'exists' => ':attribute tidak ditemukan.',
             'numeric' => ':attribute harus angka.',
             'integer' => ':attribute harus angka bulat.',
             'min' => ':attribute tidak boleh negatif.',
+            'regex' => ':attribute maksimal 2 angka di belakang koma.',
             'date_format' => 'Format jam tidak valid.',
             'checks.*.pipe_photo_url.url' => 'Link gambar harus berupa URL lengkap, mis. https://…',
         ];
@@ -403,13 +469,14 @@ class KaruFormService
             'items.*.machine_id' => 'Mesin', 'items.*.order_no' => 'No. PRO', 'checks.*.machine_id' => 'Mesin', 'items.*.machine_type' => 'Jenis mesin',
             'items.*.working_minutes' => 'Waktu kerja', 'items.*.cutting_minutes' => 'Cutting time',
             'items.*.std_output' => 'Std output', 'items.*.act_output' => 'Act output', 'items.*.ok_qty' => 'Hasil OK',
-            'items.*.second_grade_qty' => 'Reject', 'items.*.nc_qty' => 'Hasil NC', 'items.*.problems.*.minutes' => 'Menit',
+            'items.*.second_grade_qty' => 'Reject', 'items.*.reject_reason' => 'Alasan reject', 'items.*.nc_qty' => 'Hasil NC', 'items.*.problems.*.minutes' => 'Menit',
             'items.*.problems.*.kind' => 'Jenis problem', 'items.*.dimension' => 'Dimensi',
             'items.*.planned_start' => 'Start jam planning', 'items.*.planned_qty' => 'Qty planning',
             'checks.*.check_time' => 'Jam cek', 'checks.*.customer' => 'Customer', 'checks.*.dimension' => 'Size / dimensi',
             'checks.*.planned_start' => 'Start jam planning', 'checks.*.planned_qty' => 'Qty planning',
             'checks.*.d1' => 'D1', 'checks.*.d2' => 'D2', 'checks.*.d3' => 'D3', 'checks.*.d4' => 'D4',
             'checks.*.thickness_mm' => 'Tebal', 'checks.*.ib_height_mm' => 'Tinggi IB', 'checks.*.length_mm' => 'Panjang',
+            'checks.*.p1' => 'P1', 'checks.*.p2' => 'P2', 'checks.*.p3' => 'P3', 'checks.*.jig_sizes.*' => 'Ukuran jig',
             'checks.*.actual_cutting' => 'Actual cutting', 'checks.*.problem' => 'Problem / keterangan',
         ];
     }

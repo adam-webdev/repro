@@ -17,8 +17,8 @@
 
     <div class="alert alert-info text-[13px]">
         <x-icon name="info" :size="16" />
-        <span>Kolom bertanda <b>*</b> wajib diisi. Yang boleh dikosongkan hanya <b>Reject</b>, <b>Hasil NC</b>, <b>Keterangan</b> dan foto (opsional).
-            <b>Start jam &amp; qty planning</b> dipakai untuk Productivity di Monitoring Karu. Set Up / Bongkar / Downtime diisi bila ada, dan menitnya wajib.</span>
+        <span>Kolom bertanda <b>*</b> wajib diisi. Yang boleh dikosongkan hanya <b>Reject</b>, <b>Hasil NC</b>, <b>Keterangan</b> dan foto (opsional); bila Reject diisi, <b>alasan reject</b> wajib.
+            <b>Start jam &amp; qty planning</b> dipakai untuk Productivity di Monitoring Karu. Set Up / Bongkar / Downtime diisi bila ada, dan total menitnya maksimal <b>waktu kerja − cutting time</b>.</span>
     </div>
 
     <template x-for="(it, i) in f.items" :key="i">
@@ -93,9 +93,16 @@
 
                 {{-- C. Problem: Set Up & DT --}}
                 <div class="space-y-3">
-                    <div class="flex items-center justify-between">
+                    <div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                         <div class="text-[12px] font-semibold uppercase tracking-wider" style="color:var(--muted)">Problem (Set Up / Bongkar / DT)</div>
                         <span class="text-[12px]" style="color:var(--muted)" x-text="`Set up ${totalMinutes(it, 'setup')} mnt · Bongkar ${totalMinutes(it, 'bongkar')} mnt · DT ${totalMinutes(it, 'dt')} mnt`"></span>
+                    </div>
+                    {{-- jatah menit = waktu kerja − cutting time; lebih dari itu tidak bisa disimpan (isian tidak direset) --}}
+                    <div class="rounded-xl px-3 py-2 text-[12.5px] flex items-start gap-2"
+                         :style="overMinutes(it) || err(`items.${i}.problem_minutes`) ? 'background:color-mix(in srgb, var(--bad) 10%, transparent);color:var(--bad)' : 'background:var(--surface-2);color:var(--ink-2)'"
+                         :data-error="overMinutes(it) || err(`items.${i}.problem_minutes`) ? 1 : null">
+                        <x-icon name="info" :size="15" class="shrink-0 mt-0.5" />
+                        <span x-text="overMinutes(it) ? budgetText(it) : (err(`items.${i}.problem_minutes`) || budgetText(it))"></span>
                     </div>
                     <template x-for="(p, j) in it.problems" :key="j">
                         <div class="rounded-xl p-3 space-y-2" style="background:var(--surface-2)">
@@ -106,8 +113,8 @@
                             </div>
                             <div class="grid grid-cols-[minmax(0,1fr)_88px] gap-2">
                                 @include('forms.production._option_search')
-                                <input type="number" inputmode="numeric" min="0" class="input" x-model="p.minutes" placeholder="Menit *" aria-label="Menit"
-                                       :class="err(`items.${i}.problems.${j}.minutes`) && 'is-invalid'" :data-error="err(`items.${i}.problems.${j}.minutes`) ? 1 : null">
+                                <input type="number" inputmode="numeric" min="0" class="input" x-model="p.minutes" :placeholder="minutesHint(it, p)" aria-label="Menit"
+                                       :class="(err(`items.${i}.problems.${j}.minutes`) || overMinutes(it)) && 'is-invalid'" :data-error="err(`items.${i}.problems.${j}.minutes`) ? 1 : null">
                             </div>
                             <input class="input" x-show="p.option_id === 'other'" x-model="p.other_text" placeholder="Ketik keterangan lainnya" maxlength="150">
                             <span class="field-err" x-text="err(`items.${i}.problems.${j}.option_id`) || err(`items.${i}.problems.${j}.minutes`)"></span>
@@ -132,6 +139,12 @@
                                 <span class="field-err" x-text="err(`items.${i}.{{ $k }}`)"></span>
                             </label>
                         @endforeach
+                        <label class="block" x-show="hasReject(it)" x-cloak>
+                            <span class="label">Alasan reject *</span>
+                            <input class="input" x-model="it.reject_reason" maxlength="255" placeholder="mis. Burry, panjang kurang"
+                                   :class="err(`items.${i}.reject_reason`) && 'is-invalid'" :data-error="err(`items.${i}.reject_reason`) ? 1 : null">
+                            <span class="field-err" x-text="err(`items.${i}.reject_reason`)"></span>
+                        </label>
                         <label class="block">
                             <span class="label">Keterangan</span>
                             <input class="input" x-model="it.note" maxlength="255" placeholder="Opsional">

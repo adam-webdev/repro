@@ -63,13 +63,11 @@ class EvaluationFormController extends Controller
         $date = $this->parseDate($date);
         $rows = DB::table('evaluation_forms as f')
             ->join('evaluation_checks as c', 'c.evaluation_form_id', '=', 'f.id')
-            ->join('users as u', 'u.id', '=', 'f.user_id')
             ->whereNull('f.deleted_at')->whereDate('f.form_date', $date)
-            ->selectRaw('f.area_id, f.shift, u.name, f.by_substitute, COUNT(c.id) checks')
-            ->groupBy('f.area_id', 'f.shift', 'u.name', 'f.by_substitute')->get();
+            ->selectRaw('f.area_id, f.shift, COUNT(c.id) checks')
+            ->groupBy('f.area_id', 'f.shift')->get();
         $stats = $rows->groupBy(fn ($r) => $r->area_id ?? 0)->map(fn (Collection $g) => (object) [
             'checks' => (int) $g->sum('checks'),
-            'karus' => $g->map(fn ($r) => $r->name.($r->by_substitute ? ' (Pengganti)' : ''))->unique()->sort()->values()->all(),
             'shifts' => $g->pluck('shift')->unique()->sort()->values()->all(),
         ]);
 
@@ -122,7 +120,7 @@ class EvaluationFormController extends Controller
             'form' => null, 'config' => $this->service->formConfig(), 'payload' => null,
             'defaults' => [
                 'form_date' => rescue(fn () => $request->filled('date') ? $this->parseDate($request->string('date')) : null, null, false),
-                'area_id' => $request->user()->lockedAreaId() ?? Area::whereKey($request->integer('area_id'))->value('id'),
+                'area_id' => Area::whereKey($request->integer('area_id'))->value('id'),
             ],
         ]);
     }
@@ -139,7 +137,7 @@ class EvaluationFormController extends Controller
         $u = $request->user();
         abort_if($u->role === 'karu' && $form->user_id !== $u->id, 403, 'Anda hanya bisa melihat form milik Anda sendiri.');
         abort_if($form->trashed() && ! $u->isMaster(), 404);
-        $form->load(['user.employee', 'area', 'creator', 'updater', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
+        $form->load(['user.employee', 'area', 'creator', 'updater', 'checks.machine', 'checks.customer', 'checks.jigs', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
 
         return view('forms.evaluation.show', [
             'form' => $form,
@@ -162,7 +160,7 @@ class EvaluationFormController extends Controller
     public function edit(Request $request, EvaluationForm $form): View
     {
         abort_unless(KaruFormService::canEdit($request->user(), $form), 403, 'Hanya Karu pembuat form atau Admin Master yang bisa mengubah form ini.');
-        $form->load(['checks.customer', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos', 'user']);
+        $form->load(['checks.customer', 'checks.compliances', 'checks.jigs', 'checks.attachments', 'checks.pipePhotos', 'user']);
         $opt = fn ($id, $other) => $id ?? ($other ? 'other' : '');
         $num = fn ($v) => $v !== null ? (float) $v : null;
 
@@ -176,13 +174,15 @@ class EvaluationFormController extends Controller
                 'area_id' => $form->area_id,
                 'substitute_for_id' => $form->substitute_for_id,
                 'checks' => $form->checks->map(fn ($c) => [
-                    'check_time' => $c->check_time ? substr($c->check_time, 0, 5) : '',
+                    'id' => $c->id, 'check_time' => $c->check_time ? substr($c->check_time, 0, 5) : '',
                     'machine_id' => $c->machine_id, 'customer' => $c->customer?->name, 'dimension' => $c->dimension,
                     // planning lama (sekarang di Form Rekapan) ikut dikirim ulang supaya tidak hilang saat diedit
                     'planned_start' => $c->planned_start ? substr($c->planned_start, 0, 5) : null, 'planned_qty' => $c->planned_qty,
                     'od_mm' => $num($c->od_mm), 'd1' => $num($c->d1), 'd2' => $num($c->d2), 'd3' => $num($c->d3), 'd4' => $num($c->d4),
                     'thickness_mm' => $num($c->thickness_mm), 'ib_height_mm' => $num($c->ib_height_mm), 'length_mm' => $num($c->length_mm),
-                    'jig_option_id' => $opt($c->jig_option_id, $c->jig_other), 'jig_other' => $c->jig_other,
+                    'p1' => $num($c->p1), 'p2' => $num($c->p2), 'p3' => $num($c->p3),
+                    'jig_ids' => $c->jigs->pluck('id')->values(), 'jig_sizes' => (object) $c->jigs->mapWithKeys(fn ($o) => [$o->id => $o->pivot->size ?? ''])->all(),
+                    'jig_other_on' => (bool) $c->jig_other, 'jig_other' => $c->jig_other,
                     'visual_option_id' => $opt($c->visual_option_id, $c->visual_other), 'visual_other' => $c->visual_other,
                     'compliance_ids' => $c->compliances->pluck('id')->values(), 'compliance_other_on' => (bool) $c->compliance_other,
                     'compliance_other' => $c->compliance_other,
@@ -255,7 +255,7 @@ class EvaluationFormController extends Controller
 
         return EvaluationCheck::query()
             ->whereHas('form', fn ($q) => $q->whereDate('form_date', $date)->where('area_id', $area?->id))
-            ->with(['form.user.employee', 'form.substituteFor', 'machine', 'customer', 'jig', 'visual', 'compliances', 'attachments', 'pipePhotos'])
+            ->with(['form.user.employee', 'form.substituteFor', 'machine', 'customer', 'jigs', 'visual', 'compliances', 'attachments', 'pipePhotos'])
             ->get()
             ->sortBy(function (EvaluationCheck $c) use ($shiftStart) {
                 $time = $c->check_time ? self::minutes($c->check_time) : 0;

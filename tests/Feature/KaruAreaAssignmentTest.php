@@ -29,7 +29,7 @@ class KaruAreaAssignmentTest extends TestCase
         $this->machine = Machine::create(['code' => 'CUTP-501', 'type' => 'CUTP']);
         FormOption::create(['group' => 'compliance', 'label' => 'Penggunaan APD', 'sort' => 1]);
         FormOption::create(['group' => 'visual', 'label' => 'OK']);
-        FormOption::create(['group' => 'jig', 'label' => 'JIG In']);
+        FormOption::create(['group' => 'jig', 'label' => 'JIG Panjang']);
     }
 
     private function user(string $username, array $attrs = []): User
@@ -43,30 +43,35 @@ class KaruAreaAssignmentTest extends TestCase
         return $header + [
             'form_date' => now()->toDateString(), 'shift' => 1,
             'checks' => [[
-                'check_time' => '08:00', 'machine_id' => $this->machine->id, 'customer' => 'RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
-                'd1' => 10, 'd2' => 10, 'd3' => 10, 'd4' => 10, 'thickness_mm' => 1.3, 'ib_height_mm' => 0.2, 'length_mm' => 862,
-                'jig_option_id' => FormOption::where('group', 'jig')->value('id'), 'visual_option_id' => FormOption::where('group', 'visual')->value('id'),
+                'machine_id' => $this->machine->id, 'customer' => 'RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
+                'd1' => 10, 'd2' => 10, 'd3' => 10, 'd4' => 10, 'thickness_mm' => 1.3, 'ib_height_mm' => 0.2, 'p1' => 862, 'p2' => 862, 'p3' => 862,
+                'jig_option_ids' => [FormOption::where('group', 'jig')->value('id')], 'visual_option_id' => FormOption::where('group', 'visual')->value('id'),
                 'compliance_option_ids' => [FormOption::where('group', 'compliance')->value('id')], 'actual_cutting' => 100, 'problem' => 'Tidak ada',
             ]],
         ];
     }
 
-    public function test_fixed_karu_always_saves_to_their_assigned_area(): void
+    public function test_any_karu_inputs_in_any_area_and_can_stand_in_for_an_absent_karu(): void
     {
-        $karu = $this->user('ka044', ['area_id' => $this->area1->id]);
-        $this->actingAs($karu)->get('/forms/produksi/create')->assertOk()->assertSee('Area terkunci sesuai area tugas Anda.');
-
-        $this->actingAs($karu)->postJson('/forms/evaluasi', $this->evaluation(['area_id' => $this->area2->id, 'substitute_for_id' => $karu->id]))->assertOk();
-
-        $form = EvaluationForm::sole();
-        $this->assertSame($this->area1->id, $form->area_id, 'area dikunci ke area tugas');
-        $this->assertFalse((bool) $form->by_substitute);
-        $this->assertNull($form->substitute_for_id);
+        $karu = $this->user('ka044', ['name' => 'Wakhyu', 'area_id' => $this->area1->id]);
+        $absent = $this->user('ka033', ['name' => 'Purwadi', 'area_id' => $this->area2->id]);
 
         $date = now()->toDateString();
         $this->actingAs($karu)->get("/forms/evaluasi/hari/{$date}")->assertOk()
             ->assertSee(route('forms.evaluation.create', ['date' => $date, 'area_id' => $this->area1->id]))
-            ->assertDontSee(route('forms.evaluation.create', ['date' => $date, 'area_id' => $this->area2->id]));
+            ->assertSee(route('forms.evaluation.create', ['date' => $date, 'area_id' => $this->area2->id]));
+        $this->actingAs($karu)->get('/forms/produksi/create')->assertOk()->assertSee('Menggantikan karu (opsional)');
+
+        // tidak boleh menggantikan diri sendiri
+        $this->actingAs($karu)->postJson('/forms/evaluasi', $this->evaluation(['area_id' => $this->area2->id, 'substitute_for_id' => $karu->id]))
+            ->assertStatus(422)->assertJsonValidationErrors('substitute_for_id');
+
+        $this->actingAs($karu)->postJson('/forms/evaluasi', $this->evaluation(['area_id' => $this->area2->id, 'substitute_for_id' => $absent->id]))->assertOk();
+
+        $form = EvaluationForm::sole();
+        $this->assertSame($this->area2->id, $form->area_id, 'area tidak dikunci ke area tugas');
+        $this->assertTrue((bool) $form->by_substitute);
+        $this->assertSame('Wakhyu (Pengganti Purwadi)', $form->karuLabel());
     }
 
     public function test_substitute_karu_picks_any_area_and_is_labelled_in_the_area_detail(): void

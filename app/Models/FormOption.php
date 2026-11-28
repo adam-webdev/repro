@@ -17,6 +17,19 @@ class FormOption extends Model
     /** Kontrol kepatuhan yang wajib disertai foto / link gambar pipa. */
     public const VISUAL_PIPE = 'Pengecekan visual pipa';
 
+    /** Jig yang wajib disertai ukuran jig. */
+    public const JIG_WITH_SIZE = ['JIG In', 'JIG Out'];
+
+    /**
+     * Id opsi jig yang wajib disertai ukuran (JIG In / JIG Out).
+     *
+     * @return list<int>
+     */
+    public static function jigSizeIds(): array
+    {
+        return static::where('group', 'jig')->whereIn('label', self::JIG_WITH_SIZE)->pluck('id')->map(fn ($id) => (int) $id)->all();
+    }
+
     /** Id opsi kontrol kepatuhan "Pengecekan visual pipa" (null jika belum ada). */
     public static function visualPipeId(): ?int
     {

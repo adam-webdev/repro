@@ -19,7 +19,10 @@
         <template x-for="k in kpis()" :key="k.key">
             <div class="card card-pad !py-4">
                 <div class="flex items-center justify-between gap-2">
-                    <span class="text-[12.5px] font-medium" style="color:var(--ink-2)" x-text="k.label"></span>
+                    <span class="flex items-center gap-0.5 min-w-0">
+                        <span class="text-[12.5px] font-medium" style="color:var(--ink-2)" x-text="k.label"></span>
+                        <x-info-tip :title="'Rumus'"><div x-html="k.info"></div><div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih. ▲▼ = dibanding periode sebelumnya dengan panjang yang sama.</div></x-info-tip>
+                    </span>
                     <span class="text-[11px]" style="color:var(--muted)" x-text="k.hint"></span>
                 </div>
                 <div class="kpi-value mt-1.5" x-text="d ? k.value : '—'"></div>
@@ -36,7 +39,16 @@
     <div class="card card-pad">
         <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
-                <div class="card-title">Cutting time % per mesin</div>
+                <div class="card-title flex items-center gap-1">Cutting time % per mesin
+            <x-info-tip>
+                <ul>
+                    <li><b>Cutting time %</b> = Cutting time ÷ Jam kerja × 100, per mesin</li>
+                    <li>Warna: hijau ≥ 85%, kuning ≥ 75%, merah &lt; 75%</li>
+                    <li><b>Garis putus-putus / Rata-rata</b> = Cutting time ÷ Jam kerja semua mesin</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
                 <div class="card-sub">Cutting time ÷ jam kerja per mesin · hijau ≥ 85%, kuning ≥ 75%, merah &lt; 75% · garis putus-putus = rata-rata · <b>klik batang</b> untuk lihat downtime mesin itu</div>
             </div>
             <div class="text-right" x-show="d">
@@ -54,7 +66,15 @@
         <div class="card card-pad">
             <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
-                    <div class="card-title">Hasil produksi</div>
+                    <div class="card-title flex items-center gap-1">Hasil produksi
+            <x-info-tip>
+                <ul>
+                    <li><b>Baik, NC, Reject</b> = jumlah pcs per hari / minggu / bulan (sesuai pilihan "Tampilkan per")</li>
+                    <li><b>Persen</b> = pcs ÷ (Baik + NC + Reject) × 100</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih. Area &amp; mesin bisa difilter khusus untuk grafik ini.</div>
+            </x-info-tip>
+            </div>
                     <div class="card-sub">Baik, NC, dan Reject (pcs) per <span x-text="periodLabel()"></span><span x-show="chartScope('production')" x-text="' · ' + chartScope('production')"></span></div>
                 </div>
                 <div class="seg shrink-0">
@@ -66,7 +86,15 @@
             <div id="ch-production" class="mt-2 min-h-[300px]"></div>
         </div>
         <div class="card card-pad">
-            <div class="card-title">Yield & cutting time</div>
+            <div class="card-title flex items-center gap-1">Yield & cutting time
+            <x-info-tip>
+                <ul>
+                    <li><b>Yield %</b> = Σ (panjang hasil × (Baik + NC)) ÷ Σ (panjang bahan × qty bahan) × 100</li>
+                    <li><b>Cutting time %</b> = Cutting time ÷ Jam kerja × 100</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih. Area &amp; mesin bisa difilter khusus untuk grafik ini.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Yield = (Baik + NC) × panjang hasil ÷ bahan baku · Cutting time = (jam kerja − downtime) ÷ jam kerja<span x-show="chartScope('yield')" x-text="' · ' + chartScope('yield')"></span></div>
             @include('dashboard._chart_filter', ['chart' => 'yield'])
             <div id="ch-yield" class="mt-2 min-h-[300px]"></div>
@@ -76,12 +104,29 @@
     {{-- ===================== DOWNTIME ===================== --}}
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <div class="card card-pad xl:col-span-2">
-            <div class="card-title">Tren Set Up &amp; Downtime</div>
+            <div class="card-title flex items-center gap-1">Tren Set Up &amp; Downtime
+            <x-info-tip>
+                <ul>
+                    <li><b>Batang</b> = jam Set Up &amp; Downtime per periode, dikelompokkan sesuai kolom DT di sheet</li>
+                    <li><b>Garis</b> = jam cutting time per periode (sumbu kanan)</li>
+                    <li>Jam = menit ÷ 60</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Jam Set Up &amp; Downtime (batang, sumbu kiri) dan jam cutting time (garis, sumbu kanan) per <span x-text="periodLabel()"></span> · <b>klik batang</b> untuk lihat penyebabnya</div>
             <div id="ch-downtime-trend" class="mt-2 min-h-[300px] cursor-pointer"></div>
         </div>
         <div class="card card-pad">
-            <div class="card-title">Komposisi Set Up &amp; Downtime</div>
+            <div class="card-title flex items-center gap-1">Komposisi Set Up &amp; Downtime
+            <x-info-tip>
+                <ul>
+                    <li><b>Jam kerja</b> = Set Up + Downtime + Cutting time</li>
+                    <li>Tiap potongan = total jam kelompok itu dalam periode terpilih</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Jam kerja = Set Up + Downtime (kolom sheet DT) + Cutting time · <b>klik</b> Set Up / Downtime untuk lihat penyebabnya</div>
             <div id="ch-downtime-cat" class="mt-2 min-h-[300px] cursor-pointer"></div>
         </div>
@@ -91,12 +136,30 @@
 
     <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
         <div class="card card-pad">
-            <div class="card-title">Pareto downtime · 10 kolom DT teratas</div>
+            <div class="card-title flex items-center gap-1">Pareto downtime · 10 kolom DT teratas
+            <x-info-tip>
+                <ul>
+                    <li><b>Batang</b> = total jam per kolom DT, 10 terbesar</li>
+                    <li><b>% share</b> = jam kolom itu ÷ total jam downtime × 100</li>
+                    <li><b>% kumulatif</b> = jumlah share dari kolom terbesar sampai kolom itu</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Jam downtime · <b>klik batang</b> untuk lihat mesinnya</div>
             <div id="ch-downtime-pareto" class="mt-2 min-h-[340px] cursor-pointer"></div>
         </div>
         <div class="card card-pad">
-            <div class="card-title">Pareto reject · 10 jenis teratas</div>
+            <div class="card-title flex items-center gap-1">Pareto reject · 10 jenis teratas
+            <x-info-tip>
+                <ul>
+                    <li><b>Batang</b> = total pcs reject per jenis, 10 terbesar</li>
+                    <li><b>% share</b> = pcs jenis itu ÷ total pcs reject × 100</li>
+                    <li>Kode mesin di ujung batang = mesin penyumbang reject terbanyak</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Jumlah pcs reject per jenis · nama mesin penyumbang di ujung batang</div>
             <div id="ch-defect-pareto" class="mt-2 min-h-[340px]"></div>
         </div>
@@ -107,12 +170,29 @@
     {{-- ===================== NC / SHIFT / AREA ===================== --}}
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
         <div class="card card-pad">
-            <div class="card-title">Penyebab NC</div>
+            <div class="card-title flex items-center gap-1">Penyebab NC
+            <x-info-tip>
+                <ul>
+                    <li><b>Potongan</b> = total pcs NC per keterangan penyebab NC, 5 terbesar; sisanya digabung jadi "Lainnya"</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih — kolom NC &amp; penyebab NC.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">NC = barang tidak sesuai (umumnya kondisi bahan)</div>
             <div id="ch-nc" class="mt-2 min-h-[300px]"></div>
         </div>
         <div class="card card-pad">
-            <div class="card-title">Perbandingan shift</div>
+            <div class="card-title flex items-center gap-1">Perbandingan shift
+            <x-info-tip>
+                <ul>
+                    <li><b>Grafik</b> = pcs Baik, NC, Reject per shift</li>
+                    <li><b>Cutting</b> = Cutting time ÷ Jam kerja × 100</li>
+                    <li><b>NC / Reject</b> = pcs ÷ total pcs × 100</li>
+                    <li><b>DT</b> = jam downtime</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Hasil per shift</div>
             <div id="ch-shift" class="mt-1 min-h-[200px]"></div>
             <div class="overflow-x-auto -mx-1">
@@ -128,7 +208,15 @@
             </div>
         </div>
         <div class="card card-pad md:col-span-2 xl:col-span-1">
-            <div class="card-title">Perbandingan area</div>
+            <div class="card-title flex items-center gap-1">Perbandingan area
+            <x-info-tip>
+                <ul>
+                    <li><b>Grafik</b> = pcs Baik, NC, Reject per area</li>
+                    <li>Daftar mesin = mesin yang berproduksi di area itu, dengan total pcs baik</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Hasil per area · mesin yang berproduksi di tiap area</div>
             <div id="ch-area" class="mt-2 min-h-[260px]"></div>
             <div class="space-y-2 mt-1">
@@ -151,7 +239,18 @@
     <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
         <div class="card xl:col-span-2 flex flex-col">
             <div class="card-pad !pb-2">
-                <div class="card-title">Performa per mesin</div>
+                <div class="card-title flex items-center gap-1">Performa per mesin
+            <x-info-tip>
+                <ul>
+                    <li><b>Baik</b> = total pcs baik</li>
+                    <li><b>NC / Reject</b> = pcs ÷ total pcs × 100</li>
+                    <li><b>Downtime</b> = jam downtime (menit ÷ 60)</li>
+                    <li><b>Cutting time</b> = Cutting time ÷ Jam kerja × 100 (hijau ≥ 85%, kuning ≥ 75%)</li>
+                    <li><b>Yield</b> = Σ (panjang hasil × (Baik + NC)) ÷ Σ (panjang bahan × qty bahan) × 100</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
                 <div class="card-sub">Klik judul kolom untuk mengurutkan</div>
             </div>
             <div class="overflow-auto max-h-[460px] px-2 pb-2">
@@ -181,7 +280,14 @@
             </div>
         </div>
         <div class="card card-pad">
-            <div class="card-title">Customer teratas</div>
+            <div class="card-title flex items-center gap-1">Customer teratas
+            <x-info-tip>
+                <ul>
+                    <li><b>Batang</b> = total pcs baik per customer, 8 terbesar</li>
+                </ul>
+                <div class="info-src">Sumber: data produksi hasil import Excel, sesuai filter periode, shift, gudang, area &amp; mesin yang sedang dipilih.</div>
+            </x-info-tip>
+            </div>
             <div class="card-sub">Hasil baik (pcs)<span x-show="cfg.customerUrl"> · <b>klik</b> untuk detail customer</span></div>
             <div id="ch-customers" class="mt-2 min-h-[380px]" :class="cfg.customerUrl && 'cursor-pointer'"></div>
         </div>

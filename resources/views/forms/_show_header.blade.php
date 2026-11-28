@@ -10,9 +10,9 @@
             <div class="text-[13px] mt-0.5" style="color:var(--ink-2)">{{ $form->area?->name ?? 'Semua area' }}</div>
         </div>
         <div class="flex flex-wrap gap-2" x-data>
-            @isset($exportRoute)
+            @if (isset($exportRoute) && auth()->user()->hasRole('produksi'))
                 <a href="{{ route($exportRoute, $form) }}" class="btn"><x-icon name="download" :size="16" />{{ $exportLabel ?? 'Export Excel' }}</a>
-            @endisset
+            @endif
             @if ($canEdit)
                 <a href="{{ route($editRoute, $form) }}" class="btn">Edit</a>
                 <form method="POST" action="{{ route($deleteRoute, $form) }}" @submit="if (!confirm('Hapus form ini? Data tetap tersimpan di riwayat.')) $event.preventDefault()">

@@ -44,7 +44,7 @@ class User extends Authenticatable
         return $this->belongsTo(Employee::class)->withTrashed();
     }
 
-    /** Area tugas karu tetap (kosong = bebas memilih area). */
+    /** Area tugas utama karu: hanya info & isian awal area di form; karu tetap bisa input di semua area. */
     public function area(): BelongsTo
     {
         return $this->belongsTo(Area::class);
@@ -55,24 +55,12 @@ class User extends Authenticatable
         return $this->role === 'karu' && $this->is_substitute;
     }
 
-    /** Area yang wajib dipakai saat karu ini mengisi form; null = boleh memilih area mana saja (Admin, pengganti, karu tanpa area). */
-    public function lockedAreaId(): ?int
+    /** Karu tetap yang bisa dipilih di isian "Menggantikan" (selain karu yang sedang mengisi). */
+    public static function replaceableKarus(?int $exceptUserId = null): Collection
     {
-        return $this->role === 'karu' && ! $this->is_substitute ? $this->area_id : null;
-    }
-
-    /** Boleh menambah data form karu di area ini? */
-    public function canInputArea(?int $areaId): bool
-    {
-        $locked = $this->lockedAreaId();
-
-        return $this->hasRole('karu') && ($locked === null || $locked === $areaId);
-    }
-
-    /** Karu tetap yang bisa dipilih di isian "Menggantikan". */
-    public static function replaceableKarus(): Collection
-    {
-        return self::where('role', 'karu')->where('is_substitute', false)->orderBy('name')->get(['id', 'name', 'area_id']);
+        return self::where('role', 'karu')->where('is_substitute', false)
+            ->when($exceptUserId, fn ($q) => $q->whereKeyNot($exceptUserId))
+            ->orderBy('name')->get(['id', 'name', 'area_id']);
     }
 
     /** Admin Master selalu lolos. */

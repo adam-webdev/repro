@@ -7,7 +7,9 @@
     $hasOd = $form->checks->contains(fn ($c) => $c->od_mm !== null); // data lama yang masih punya kolom OD terpisah
     // planning sekarang diisi di Form Rekapan; kolom ini hanya tampil untuk data lama
     $hasPlanning = $form->checks->contains(fn ($c) => $c->planned_start || $c->planned_qty !== null);
-    $measures = array_merge($hasOd ? [['od_mm', 'OD']] : [], [['d1', 'D1'], ['d2', 'D2'], ['d3', 'D3'], ['d4', 'D4'], ['thickness_mm', 'Tebal'], ['ib_height_mm', 'Tinggi IB'], ['length_mm', 'Panjang']]);
+    $measures = array_merge($hasOd ? [['od_mm', 'OD']] : [], [['d1', 'D1'], ['d2', 'D2'], ['d3', 'D3'], ['d4', 'D4'], ['thickness_mm', 'Tebal'], ['ib_height_mm', 'Tinggi IB']],
+        $form->checks->contains(fn ($c) => $c->length_mm !== null) ? [['length_mm', 'Panjang']] : [], // data lama: satu kolom panjang
+        [['p1', 'P1'], ['p2', 'P2'], ['p3', 'P3']]);
 @endphp
 <div class="max-w-[1400px] mx-auto space-y-4">
     <div class="max-w-4xl">
@@ -50,7 +52,7 @@
                         <tr>
                             <td class="sheet-sticky">
                                 <div class="text-[11px] font-semibold" style="color:var(--muted)">#{{ $c->seq }}</div>
-                                <div class="font-semibold tabular-nums">{{ $c->check_time ? substr($c->check_time, 0, 5) : '–' }}</div>
+                                <div class="font-semibold tabular-nums flex items-center gap-1.5">{{ $c->check_time ? substr($c->check_time, 0, 5) : '–' }}@if ($vs = $c->visualStatus())<span class="visual-mark {{ $vs }}" title="Visual {{ strtoupper($vs) }}" aria-label="Visual {{ strtoupper($vs) }}"><x-icon :name="$vs === 'ok' ? 'check' : 'x'" :size="12" :stroke="3" /></span>@endif</div>
                             </td>
                             <td class="font-semibold whitespace-nowrap">{{ $c->machine?->code ?? '–' }}</td>
                             <td>
@@ -61,9 +63,8 @@
                             @foreach ($measures as [$k, $l])
                                 <td class="text-right tabular-nums">{{ $n($c->{$k}) }}</td>
                             @endforeach
-                            @foreach (['jig', 'visual'] as $g)
-                                <td>@include('forms.evaluation._ticks_read', ['g' => $g])</td>
-                            @endforeach
+                            <td>@include('forms.evaluation._jigs_read')</td>
+                            <td>@include('forms.evaluation._ticks_read', ['g' => 'visual'])</td>
                             <td class="text-right tabular-nums">{{ $c->actual_cutting !== null ? number_format($c->actual_cutting, 0, ',', '.') : '–' }}</td>
                             @if ($hasPlanning)<td class="text-right tabular-nums">{{ $c->planned_qty !== null ? number_format($c->planned_qty, 0, ',', '.') : '–' }}</td>@endif
                             <td>@include('forms.evaluation._ticks_read_multi')</td>

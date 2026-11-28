@@ -23,14 +23,14 @@
     $u = auth()->user();
     $sections = [
         [null, [['dashboard', 'Dashboard', 'layout-dashboard', 'dashboard', true]]],
+        ['Form karu', [
+            ['forms.monitoring', 'Monitoring karu', 'activity', 'forms.monitoring*', $u->hasRole('karu', 'produksi')],
+            ['forms.production.index', 'Form rekapan', 'clipboard-list', 'forms.production.*', $u->hasRole('karu', 'produksi')],
+            ['forms.evaluation.index', 'Form daily supervisor', 'clipboard-check', 'forms.evaluation.*', $u->hasRole('karu', 'produksi')],
+        ]],
         ['Data produksi', [
             ['imports.index', 'Import data', 'upload', 'imports.*', $u->hasRole('produksi')],
             ['reports.index', 'Tabel data', 'sheet', 'reports.*|orders.*', $u->hasRole('produksi')],
-        ]],
-        ['Form karu', [
-            ['forms.monitoring', 'Monitoring karu', 'activity', 'forms.monitoring*', $u->hasRole('produksi')],
-            ['forms.production.index', 'Form rekapan', 'clipboard-list', 'forms.production.*', $u->hasRole('karu', 'produksi')],
-            ['forms.evaluation.index', 'Form daily supervisor', 'clipboard-check', 'forms.evaluation.*', $u->hasRole('karu', 'produksi')],
         ]],
         ['Admin', [
             ['employees.index', 'Karyawan & akun', 'users', 'employees.*', $u->isMaster()],

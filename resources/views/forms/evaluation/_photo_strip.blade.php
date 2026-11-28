@@ -13,8 +13,4 @@
         <x-icon name="camera" :size="18" style="color:var(--ink-2)" />
         <input type="file" accept="image/*" capture="environment" class="hidden" @change="addPhotos(c, $event.target.files, '{{ $key }}'); $event.target.value = ''">
     </label>
-    <label class="thumb !w-12 !h-12 grid place-items-center cursor-pointer" style="border-style:dashed" title="Pilih foto dari galeri" aria-label="Pilih foto dari galeri">
-        <x-icon name="image-plus" :size="18" style="color:var(--ink-2)" />
-        <input type="file" accept="image/*" multiple class="hidden" @change="addPhotos(c, $event.target.files, '{{ $key }}'); $event.target.value = ''">
-    </label>
 </div>

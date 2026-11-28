@@ -9,9 +9,12 @@
 @endphp
 <ul class="space-y-1">
     @foreach ($list as $o)
-        @php $on = $picked?->id === $o->id; @endphp
-        <li class="tick-read {{ $on ? 'on' : '' }}">
-            <span class="tick-box">@if ($on)<x-icon name="check" :size="12" :stroke="3" />@endif</span>{{ $o->label }}
+        @php
+            $on = $picked?->id === $o->id;
+            $tone = $g === 'visual' ? ['OK' => 'tick-ok', 'NG' => 'tick-ng'][strtoupper(trim($o->label))] ?? '' : '';
+        @endphp
+        <li class="tick-read {{ $on ? 'on' : '' }} {{ $tone }}">
+            <span class="tick-box">@if ($on)<x-icon :name="$tone === 'tick-ng' ? 'x' : 'check'" :size="12" :stroke="3" />@endif</span>{{ $o->label }}
         </li>
     @endforeach
     @if ($other)

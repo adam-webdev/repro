@@ -49,20 +49,25 @@ Route::middleware(['auth', 'role'])->group(function () {
         Route::get('/customers/{customer}', [CustomerController::class, 'show'])->name('customers.show');
     });
 
-    // Monitoring Karu (pindahan dari dashboard): Admin Produksi & Admin Master
-    Route::middleware('role:produksi')->group(function () {
+    // Monitoring Karu (pindahan dari dashboard): Admin Produksi & Admin Master; Karu ikut melihat (tanpa export)
+    Route::middleware('role:karu,produksi')->group(function () {
         Route::get('/forms/monitoring', [DashboardController::class, 'karu'])->name('forms.monitoring');
         Route::get('/forms/monitoring/data', [DashboardController::class, 'karuData'])->name('forms.monitoring.data');
+    });
+
+    // Export form karu: hanya Admin Produksi & Admin Master (Karu tidak bisa export)
+    Route::middleware('role:produksi')->group(function () {
+        Route::get('/forms/produksi/export', [ProductionFormController::class, 'export'])->name('forms.production.export');
+        Route::get('/forms/evaluasi/hari/{date}/{area}/export', [EvaluationFormController::class, 'areaExport'])->name('forms.evaluation.area-export');
+        Route::get('/forms/evaluasi/{form}/export', [EvaluationFormController::class, 'export'])->name('forms.evaluation.export')->withTrashed();
     });
 
     // Form Karu: Karu mengisi; Admin Produksi melihat
     Route::middleware('role:karu,produksi')->group(function () {
         Route::get('/forms/produksi', [ProductionFormController::class, 'index'])->name('forms.production.index');
-        Route::get('/forms/produksi/export', [ProductionFormController::class, 'export'])->name('forms.production.export');
         Route::get('/forms/evaluasi', [EvaluationFormController::class, 'index'])->name('forms.evaluation.index');
         Route::get('/forms/evaluasi/hari/{date}', [EvaluationFormController::class, 'day'])->name('forms.evaluation.day');
         Route::get('/forms/evaluasi/hari/{date}/{area}', [EvaluationFormController::class, 'area'])->name('forms.evaluation.area');
-        Route::get('/forms/evaluasi/hari/{date}/{area}/export', [EvaluationFormController::class, 'areaExport'])->name('forms.evaluation.area-export');
         Route::get('/attachments/{attachment}', [AttachmentController::class, 'show'])->name('attachments.show');
     });
     Route::middleware('role:karu')->group(function () {
@@ -83,7 +88,6 @@ Route::middleware(['auth', 'role'])->group(function () {
     });
     Route::middleware('role:karu,produksi')->group(function () {
         Route::get('/forms/produksi/{form}', [ProductionFormController::class, 'show'])->name('forms.production.show')->withTrashed();
-        Route::get('/forms/evaluasi/{form}/export', [EvaluationFormController::class, 'export'])->name('forms.evaluation.export')->withTrashed();
         Route::get('/forms/evaluasi/{form}', [EvaluationFormController::class, 'show'])->name('forms.evaluation.show')->withTrashed();
     });
 

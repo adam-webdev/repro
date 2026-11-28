@@ -57,7 +57,7 @@ class EvaluationForm extends Model
 
     public function snapshot(): array
     {
-        $this->load(['area', 'checks.machine', 'checks.customer', 'checks.jig', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
+        $this->load(['area', 'checks.machine', 'checks.customer', 'checks.jigs', 'checks.visual', 'checks.compliances', 'checks.attachments', 'checks.pipePhotos']);
         $out = [
             'Tanggal' => $this->form_date->format('d/m/Y'),
             'Shift' => $this->shift,
@@ -79,7 +79,10 @@ class EvaluationForm extends Model
                 $p.'tebal' => $c->thickness_mm !== null ? (float) $c->thickness_mm : null,
                 $p.'tinggi IB' => $c->ib_height_mm !== null ? (float) $c->ib_height_mm : null,
                 $p.'panjang' => $c->length_mm !== null ? (float) $c->length_mm : null,
-                $p.'JIG' => FormOption::display($c->jig, $c->jig_other),
+                $p.'P1' => $c->p1 !== null ? (float) $c->p1 : null,
+                $p.'P2' => $c->p2 !== null ? (float) $c->p2 : null,
+                $p.'P3' => $c->p3 !== null ? (float) $c->p3 : null,
+                $p.'JIG' => $c->jigText(),
                 $p.'visual' => FormOption::display($c->visual, $c->visual_other),
                 $p.'kepatuhan' => $c->complianceText(),
                 $p.'actual cutting' => $c->actual_cutting,

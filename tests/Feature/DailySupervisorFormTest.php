@@ -30,7 +30,7 @@ class DailySupervisorFormTest extends TestCase
         $this->apd = FormOption::create(['group' => 'compliance', 'label' => 'Penggunaan APD', 'sort' => 1]);
         $this->visualPipe = FormOption::create(['group' => 'compliance', 'label' => FormOption::VISUAL_PIPE, 'sort' => 2]);
         FormOption::create(['group' => 'visual', 'label' => 'OK']);
-        FormOption::create(['group' => 'jig', 'label' => 'JIG In']);
+        FormOption::create(['group' => 'jig', 'label' => 'JIG Panjang']);
     }
 
     private function karu(string $name): User
@@ -42,9 +42,9 @@ class DailySupervisorFormTest extends TestCase
     private function check(array $overrides = []): array
     {
         return array_merge([
-            'check_time' => '08:00', 'machine_id' => $this->machine->id, 'customer' => 'RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
-            'd1' => 10, 'd2' => 10, 'd3' => 10, 'd4' => 10, 'thickness_mm' => 1.3, 'ib_height_mm' => 0.2, 'length_mm' => 862,
-            'jig_option_id' => FormOption::where('group', 'jig')->value('id'), 'visual_option_id' => FormOption::where('group', 'visual')->value('id'),
+            'machine_id' => $this->machine->id, 'customer' => 'RINNAI INDONESIA', 'dimension' => 'Ø10 × 1,3 × 862',
+            'd1' => 10, 'd2' => 10, 'd3' => 10, 'd4' => 10, 'thickness_mm' => 1.3, 'ib_height_mm' => 0.2, 'p1' => 862, 'p2' => 862, 'p3' => 862,
+            'jig_option_ids' => [FormOption::where('group', 'jig')->value('id')], 'visual_option_id' => FormOption::where('group', 'visual')->value('id'),
             'compliance_option_ids' => [$this->apd->id], 'actual_cutting' => 100, 'problem' => 'Tidak ada',
         ], $overrides);
     }
@@ -89,20 +89,27 @@ class DailySupervisorFormTest extends TestCase
         $date = now()->subDay()->toDateString();
         $photo = $this->photo($karuA);
 
+        // jam cek = jam saat disimpan
+        $this->travelTo(now()->setTime(10, 0));
         $this->actingAs($karuA)->postJson('/forms/evaluasi', ['form_date' => $date, 'shift' => 1, 'area_id' => $area->id, 'checks' => [
-            $this->check(['check_time' => '10:00', 'problem' => 'Cek siang']),
-            $this->check(['check_time' => '08:00', 'problem' => 'Cek pagi', 'attachments' => [$photo]]),
+            $this->check(['problem' => 'Cek pagi', 'attachments' => [$photo]]),
+            $this->check(['problem' => 'Cek siang']),
         ]])->assertOk()->assertJsonPath('redirect', route('forms.evaluation.area', [$date, $area->id]));
+        $this->travelTo(now()->setTime(1, 30));
         $this->actingAs($karuB)->postJson('/forms/evaluasi', ['form_date' => $date, 'shift' => 2, 'area_id' => $area->id, 'checks' => [
-            $this->check(['check_time' => '01:30', 'problem' => 'Cek lewat tengah malam']),
-            $this->check(['check_time' => '19:00', 'problem' => 'Cek malam']),
+            $this->check(['problem' => 'Cek lewat tengah malam']),
+        ]])->assertOk();
+        $this->travelTo(now()->setTime(19, 0));
+        $this->actingAs($karuB)->postJson('/forms/evaluasi', ['form_date' => $date, 'shift' => 2, 'area_id' => $area->id, 'checks' => [
+            $this->check(['problem' => 'Cek malam']),
         ]])->assertOk();
 
         $this->actingAs($karuB)->get('/forms/evaluasi')->assertOk()
             ->assertSee(route('forms.evaluation.day', $date))->assertSee('4 pengecekan');
         $this->actingAs($karuB)->get(route('forms.evaluation.day', $date))->assertOk()
             ->assertSee('Area 01')->assertSee('Area 02')->assertSee('Belum ada pengecekan')
-            ->assertSee(route('forms.evaluation.area', [$date, $area->id]));
+            ->assertSee(route('forms.evaluation.area', [$date, $area->id]))
+            ->assertDontSee('Karu Pagi')->assertSee('Repair')->assertSee('Packing')->assertSee('Segera hadir');
 
         // satu lembar gabungan, urut shift lalu jam (01:30 shift 2 setelah 19:00)
         $this->actingAs($karuB)->get(route('forms.evaluation.area', [$date, $area->id]))->assertOk()
@@ -111,7 +118,9 @@ class DailySupervisorFormTest extends TestCase
         // foto karu lain bisa dibuka dari lembar gabungan
         $this->actingAs($karuB)->get(route('attachments.show', $photo))->assertNotFound(); // file dummy tidak ada, tapi tidak 403
 
-        $res = $this->actingAs($karuB)->get(route('forms.evaluation.area-export', [$date, $area->id]))->assertOk();
+        $this->actingAs($karuB)->get(route('forms.evaluation.area-export', [$date, $area->id]))->assertForbidden(); // karu tidak bisa export
+        $res = $this->actingAs(User::create(['name' => 'Admin', 'username' => 'adm', 'password' => 'rahasia123', 'role' => 'produksi', 'is_active' => true]))
+            ->get(route('forms.evaluation.area-export', [$date, $area->id]))->assertOk();
         $tmp = tempnam(sys_get_temp_dir(), 'pdr').'.xlsx';
         file_put_contents($tmp, $res->streamedContent());
         $ws = IOFactory::load($tmp)->getSheet(0);
@@ -121,6 +130,7 @@ class DailySupervisorFormTest extends TestCase
         $this->assertStringContainsString('Karu: Karu Pagi · Shift 1', $ws->getCell('P11')->getValue());
         $this->assertStringContainsString('Foto: '.route('attachments.show', $photo), $ws->getCell('P11')->getValue());
         $this->assertStringContainsString('Cek lewat tengah malam', $ws->getCell('P17')->getValue());
+        $this->assertSame('01:30 ✓', $ws->getCell('A17')->getFormattedValue(), 'visual OK: centang hijau di samping jam');
     }
 
     public function test_karu_deletes_only_their_own_check(): void
@@ -130,8 +140,8 @@ class DailySupervisorFormTest extends TestCase
         $other = $this->karu('Karu Dua');
         $date = now()->subDay()->toDateString();
         $this->actingAs($owner)->postJson('/forms/evaluasi', ['form_date' => $date, 'shift' => 1, 'area_id' => $area->id, 'checks' => [
-            $this->check(['check_time' => '08:00', 'problem' => 'Salah ketik']),
-            $this->check(['check_time' => '09:00', 'problem' => 'Benar']),
+            $this->check(['problem' => 'Salah ketik']),
+            $this->check(['problem' => 'Benar']),
         ]])->assertOk();
         $form = EvaluationForm::firstOrFail();
         [$typo, $kept] = $form->checks->all();
@@ -161,20 +171,23 @@ class DailySupervisorFormTest extends TestCase
             'items' => [[
                 'machine_type' => 'umum', 'machine_id' => $this->machine->id, 'order_no' => $pro, 'dimension' => 'Ø10',
                 'planned_start' => '07:30', 'planned_qty' => 1000, 'working_minutes' => 600, 'cutting_minutes' => 500,
-                'std_output' => 100, 'act_output' => 90, 'ok_qty' => 800, 'note' => 'Lancar', 'attachments' => $photos,
+                'std_output' => 100, 'act_output' => 90, 'ok_qty' => 800, 'second_grade_qty' => 3, 'reject_reason' => 'Penyok', 'note' => 'Lancar', 'attachments' => $photos,
             ]],
         ];
         $this->actingAs($karu)->postJson('/forms/produksi', $payload('408894', [$photo]))->assertOk();
         $this->actingAs($other)->postJson('/forms/produksi', $payload('999999', []))->assertOk();
 
-        $res = $this->actingAs($karu)->get('/forms/produksi/export')->assertOk();
+        $this->actingAs($karu)->get('/forms/produksi/export')->assertForbidden(); // karu tidak bisa export
+        $res = $this->actingAs(User::create(['name' => 'Admin', 'username' => 'adm', 'password' => 'rahasia123', 'role' => 'produksi', 'is_active' => true]))
+            ->get('/forms/produksi/export', ['user_id' => $karu->id])->assertOk();
         $tmp = tempnam(sys_get_temp_dir(), 'rek').'.xlsx';
         file_put_contents($tmp, $res->streamedContent());
         $rows = IOFactory::load($tmp)->getSheet(0)->toArray();
         @unlink($tmp);
 
-        $this->assertCount(2, $rows, 'karu hanya mengekspor form miliknya');
+        $this->assertCount(3, $rows, 'admin mengekspor semua form');
         $row = array_combine($rows[0], $rows[1]);
+        $this->assertSame([3, 'Penyok'], [(int) $row['Reject (pcs)'], $row['Alasan Reject']]);
         $this->assertSame('408894', (string) $row['No. PRO']);
         $this->assertSame(['07:30', 1000, 80], [$row['Start Jam Planning'], (int) $row['Qty Planning (pcs)'], (int) $row['Productivity %']]);
         $this->assertSame("Lancar\nFoto: ".route('attachments.show', $photo), $row['Keterangan']);

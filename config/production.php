@@ -261,7 +261,7 @@ return [
             'Pengecekan visual pipa', // wajib disertai foto / link gambar (lihat FormOption::VISUAL_PIPE)
         ],
         'visual' => ['OK', 'NG', 'Perlu tindak lanjut'],
-        'jig' => ['JIG In', 'JIG Out', 'JIG Panjang', 'JIG GONOROGO'],
+        'jig' => ['JIG In', 'JIG Out', 'JIG Panjang', 'JIG Go/Nogo'],
     ],
 
     // Kontak Admin Master untuk reset password (link "Lupa password?" di halaman login)

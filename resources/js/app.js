@@ -266,12 +266,18 @@ Alpine.data('dashboard', (cfg) => ({
             return { delta: diff, good, deltaText: `${arrow} ${fmt(Math.abs(diff), 1)}${isPct ? ' poin' : '%'}` };
         };
         return [
-            { key: 'ok', label: 'Hasil baik', hint: 'pcs', value: short(k.ok), sub: `${fmt(k.ok_kg / 1000, 1)} ton · ${fmt(k.reports)} laporan`, ...delta(k.ok, p.ok) },
-            { key: 'yield', label: 'Yield', hint: '(Baik+NC) ÷ bahan', value: this.pct(k.yield_sap), sub: 'Sesuai kolom Yield di Excel', ...delta(k.yield_sap, p.yield_sap, true, true) },
-            { key: 'nc', label: 'NC', hint: '% total', value: this.pct(k.nc_pct), sub: `${short(k.nc)} pcs`, ...delta(k.nc_pct, p.nc_pct, false, true) },
-            { key: 'reject', label: 'Reject', hint: '% total', value: this.pct(k.reject_pct), sub: `${short(k.reject)} pcs`, ...delta(k.reject_pct, p.reject_pct, false, true) },
-            { key: 'cut', label: 'Cutting time', hint: '% jam kerja', value: this.pct(k.cutting_pct), sub: `Capaian ${this.pct(k.achievement)}`, ...delta(k.cutting_pct, p.cutting_pct, true, true) },
-            { key: 'dt', label: 'Downtime', hint: 'jam', value: fmt(k.downtime_hours, 0) + ' j', sub: `${k.machines || 0} mesin · ${k.days || 0} hari`, ...delta(k.downtime_hours, p.downtime_hours, false) },
+            { key: 'ok', label: 'Hasil baik', hint: 'pcs', value: short(k.ok), sub: `${fmt(k.ok_kg / 1000, 1)} ton · ${fmt(k.reports)} laporan`, ...delta(k.ok, p.ok),
+                info: '<b>Hasil baik</b> = total pcs OK.<br><b>Ton</b> = total berat OK ÷ 1.000. <b>Laporan</b> = jumlah baris laporan produksi.' },
+            { key: 'yield', label: 'Yield', hint: '(Baik+NC) ÷ bahan', value: this.pct(k.yield_sap), sub: 'Sesuai kolom Yield di Excel', ...delta(k.yield_sap, p.yield_sap, true, true),
+                info: '<b>Yield</b> = Σ (panjang hasil × (Baik + NC)) ÷ Σ (panjang bahan × qty bahan) × 100.' },
+            { key: 'nc', label: 'NC', hint: '% total', value: this.pct(k.nc_pct), sub: `${short(k.nc)} pcs`, ...delta(k.nc_pct, p.nc_pct, false, true),
+                info: '<b>NC %</b> = pcs NC ÷ total pcs cutting × 100. Makin kecil makin bagus.' },
+            { key: 'reject', label: 'Reject', hint: '% total', value: this.pct(k.reject_pct), sub: `${short(k.reject)} pcs`, ...delta(k.reject_pct, p.reject_pct, false, true),
+                info: '<b>Reject %</b> = pcs reject ÷ total pcs cutting × 100. Makin kecil makin bagus.' },
+            { key: 'cut', label: 'Cutting time', hint: '% jam kerja', value: this.pct(k.cutting_pct), sub: `Capaian ${this.pct(k.achievement)}`, ...delta(k.cutting_pct, p.cutting_pct, true, true),
+                info: '<b>Cutting time %</b> = Cutting time ÷ Jam kerja × 100.<br><b>Capaian</b> = kapasitas cutting ÷ kapasitas × 100.' },
+            { key: 'dt', label: 'Downtime', hint: 'jam', value: fmt(k.downtime_hours, 0) + ' j', sub: `${k.machines || 0} mesin · ${k.days || 0} hari`, ...delta(k.downtime_hours, p.downtime_hours, false),
+                info: '<b>Downtime</b> = total menit downtime ÷ 60 (jam).<br><b>Mesin / hari</b> = jumlah mesin &amp; tanggal yang punya data.' },
         ];
     },
 
@@ -702,10 +708,13 @@ Alpine.data('monitoringDaily', (cfg) => ({
         const k = this.d?.kpi || {}, c = this.d?.kpi_change || {};
         const has = (v) => v !== null && v !== undefined;
         return [
-            { key: 'pc', label: 'Total PC', value: fmt(k.total_pc), change: c.total_pc ?? null, sub: 'vs kemarin' },
-            { key: 'eff', label: 'Efficiency', value: has(k.efficiency) ? fmt(k.efficiency, 0) + '%' : '-', change: c.efficiency ?? null, sub: 'Act ÷ Std' },
+            { key: 'pc', label: 'Total PC', value: fmt(k.total_pc), change: c.total_pc ?? null, sub: 'vs kemarin',
+                info: '<b>Total PC</b> = Hasil OK + Reject + Hasil NC semua mesin.' },
+            { key: 'eff', label: 'Efficiency', value: has(k.efficiency) ? fmt(k.efficiency, 0) + '%' : '-', change: c.efficiency ?? null, sub: 'Act ÷ Std',
+                info: '<b>Efficiency</b> = Total pcs ÷ Std pcs × 100.<br><b>Std pcs</b> = Std output (pcs/jam) × Waktu kerja (jam). PRO tanpa Std output tidak ikut dihitung.' },
             { key: 'prod', label: 'Productivity', value: has(k.productivity) ? fmt(k.productivity, 0) + '%' : '-', change: c.productivity ?? null,
-                sub: k.planned_qty ? `plan ${short(k.planned_qty)}` : 'belum ada planning' },
+                sub: k.planned_qty ? `plan ${short(k.planned_qty)}` : 'belum ada planning',
+                info: '<b>Productivity</b> = Total PC ÷ jumlah Qty planning × 100.' },
         ];
     },
 
@@ -868,6 +877,30 @@ Alpine.data('monitoringDaily', (cfg) => ({
     },
 }));
 
+/* ------------------------------------------------------------------ ⓘ rumus & sumber data (komponen <x-info-tip>) */
+Alpine.data('infoTip', () => ({
+    open: false,
+    style: '',
+    toggle() {
+        if (this.open) { this.open = false; return; }
+        const r = this.$refs.btn.getBoundingClientRect();
+        const w = Math.min(360, window.innerWidth - 32);
+        const left = Math.min(Math.max(16, r.left), window.innerWidth - 16 - w);
+        const below = window.innerHeight - r.bottom;
+        // tampil di bawah tombol; jika ruang di bawah sempit, tampil di atasnya
+        this.style = below >= 220 || below >= r.top
+            ? `left:${left}px;top:${r.bottom + 6}px;width:${w}px;max-height:${below - 22}px`
+            : `left:${left}px;bottom:${window.innerHeight - r.top + 6}px;width:${w}px;max-height:${r.top - 22}px`;
+        this.open = true;
+    },
+    init() {
+        // panel ber-posisi tetap: tutup saat halaman / tabel digulir supaya tidak "melayang" terpisah dari tombolnya
+        const close = (e) => { if (this.open && !e?.target?.closest?.('.info-pop')) this.open = false; };
+        window.addEventListener('scroll', close, { passive: true, capture: true });
+        window.addEventListener('resize', close);
+    },
+}));
+
 /* ------------------------------------------------------------------ detail laporan (halaman data produksi) */
 Alpine.data('reportDetail', () => ({
     open: false,
@@ -907,12 +940,18 @@ Alpine.data('employeeCard', () => ({
 
 /* ------------------------------------------------------------------ form karu (HP) */
 const csrf = () => document.querySelector('meta[name="csrf-token"]')?.content;
-const pad2 = (n) => String(n).padStart(2, '0');
-const nowHM = () => { const d = new Date(); return `${pad2(d.getHours())}:${pad2(d.getMinutes())}`; };
+/* Jam sekarang dalam WIB (Asia/Jakarta), tidak tergantung pengaturan zona waktu HP */
+const wibHour = () => {
+    try {
+        return Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Jakarta', hour: '2-digit', hourCycle: 'h23' }).format(new Date()));
+    } catch (e) {
+        return new Date().getHours();
+    }
+};
 /* Shift karu: 1 = 07–18, 2 = 18–07. Lewat tengah malam masih shift 2 dengan tanggal hari sebelumnya. */
-const guessShift = () => { const h = new Date().getHours(); return h >= 7 && h < 18 ? 1 : 2; };
+const guessShift = () => { const h = wibHour(); return h >= 7 && h < 18 ? 1 : 2; };
 const guessFormDate = (today) => {
-    if (new Date().getHours() >= 7) return today;
+    if (wibHour() >= 7) return today;
     const d = new Date(today + 'T12:00:00');
     d.setDate(d.getDate() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -946,8 +985,10 @@ function karuFormBase(cfg) {
         hasErr(prefix) { return Object.keys(this.errors).some(k => k === prefix || k.startsWith(prefix + '.')); },
         machineCode(id) { return this.cfg.machines.find(m => String(m.id) === String(id))?.code || ''; },
         opts(group) { return this.cfg.options[group] || []; },
-        /* Karu tetap: area selalu area tugasnya (juga menimpa draft lama) */
-        applyAreaLock() { if (cfg.karu?.lockedAreaId) this.f.area_id = String(cfg.karu.lockedAreaId); },
+        /* Visual OK = centang hijau, NG = silang merah */
+        visualTone(label) { return { OK: 'tick-ok', NG: 'tick-ng' }[String(label || '').trim().toUpperCase()] || ''; },
+        /* Area awal form baru = area tugas karu (tetap bisa diganti; semua karu bisa input di semua area & mesin) */
+        defaultArea() { return cfg.karu?.defaultAreaId ? String(cfg.karu.defaultAreaId) : ''; },
 
         /* key: daftar foto di baris itu (photos = evidence umum, pipe_photos = foto visual pipa) */
         async addPhotos(row, files, key = 'photos') {
@@ -1051,11 +1092,10 @@ Alpine.data('productionForm', (cfg) => ({
         this.f = this.withDraft({
             form_date: p?.form_date || guessFormDate(cfg.today),
             shift: p?.shift || guessShift(),
-            area_id: p?.area_id || '',
+            area_id: p?.area_id || this.defaultArea(),
             substitute_for_id: p?.substitute_for_id || '',
             items: (p?.items || []).map(it => ({ ...this.newItem(), ...it, open: false })),
         });
-        this.applyAreaLock();
         this.f.items = this.f.items.map(it => ({ ...this.newItem(), ...it }));
         if (!this.f.items.length) this.addItem();
         this.watchDraft();
@@ -1064,7 +1104,7 @@ Alpine.data('productionForm', (cfg) => ({
     newItem(prev = null) {
         return { machine_type: prev?.machine_type || '', machine_id: prev?.machine_id || '', order_no: '', dimension: '', planned_start: '', planned_qty: '',
             working_minutes: '', cutting_minutes: '', std_output: '', act_output: '',
-            ok_qty: '', second_grade_qty: '', nc_qty: '', note: '', problems: [], photos: [], open: true };
+            ok_qty: '', second_grade_qty: '', reject_reason: '', nc_qty: '', note: '', problems: [], photos: [], open: true };
     },
     addItem() {
         const prev = this.f.items[this.f.items.length - 1];
@@ -1073,8 +1113,32 @@ Alpine.data('productionForm', (cfg) => ({
         this.$nextTick(() => document.getElementById('item-' + (this.f.items.length - 1))?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
     },
     removeItem(i) { if (confirm('Hapus PRO #' + (i + 1) + ' dari form?')) this.f.items.splice(i, 1); },
+    /* Semua mesin (tidak dibatasi area), cukup disaring per jenis mesin */
     machinesFor(it) {
-        return this.cfg.machines.filter(m => (!it.machine_type || m.type === it.machine_type) && (!this.f.area_id || !m.area_id || String(m.area_id) === String(this.f.area_id)));
+        return this.cfg.machines.filter(m => !it.machine_type || m.type === it.machine_type);
+    },
+    hasReject(it) { return Number(it.second_grade_qty) > 0; },
+    /*
+     * Selisih waktu kerja − cutting time = jatah menit untuk Set Up + Bongkar + Downtime.
+     * null bila waktu kerja / cutting time belum diisi.
+     */
+    spareMinutes(it) {
+        if (it.working_minutes === '' || it.working_minutes === null || it.cutting_minutes === '' || it.cutting_minutes === null) return null;
+        return Number(it.working_minutes) - Number(it.cutting_minutes);
+    },
+    usedMinutes(it) { return it.problems.reduce((a, p) => a + (Number(p.minutes) || 0), 0); },
+    overMinutes(it) {
+        const spare = this.spareMinutes(it);
+        return spare !== null && spare >= 0 && this.usedMinutes(it) > spare ? this.usedMinutes(it) - spare : 0;
+    },
+    /* Pesan jatah menit di bawah judul Problem; kosong bila belum bisa dihitung */
+    budgetText(it) {
+        const spare = this.spareMinutes(it);
+        if (spare === null) return 'Isi waktu kerja & cutting time dulu: selisihnya jadi jatah menit Set Up / Bongkar / Downtime.';
+        if (spare < 0) return 'Cutting time lebih besar dari waktu kerja.';
+        const used = this.usedMinutes(it), over = this.overMinutes(it);
+        if (over) return `Kelebihan ${over} mnt: total ${used} dari jatah ${spare} mnt. Kecilkan menit Set Up, Bongkar atau Downtime supaya pas.`;
+        return `Terpakai ${used} dari jatah ${spare} mnt (waktu kerja − cutting time) · sisa ${spare - used} mnt`;
     },
     pickMachine(it) {
         const m = this.cfg.machines.find(x => String(x.id) === String(it.machine_id));
@@ -1103,6 +1167,13 @@ Alpine.data('productionForm', (cfg) => ({
         });
     },
     addProblem(it, kind) { it.problems.push({ kind, option_id: '', other_text: '', minutes: '' }); },
+    /* Placeholder menit: tunjukkan sisa jatah supaya karu tahu maksimal yang bisa diisi */
+    minutesHint(it, p) {
+        const spare = this.spareMinutes(it);
+        if (spare === null || spare < 0) return 'Menit *';
+        const left = spare - this.usedMinutes(it) + (Number(p.minutes) || 0);
+        return 'maks ' + Math.max(0, left);
+    },
     totalMinutes(it, kind) { return it.problems.filter(p => p.kind === kind).reduce((a, p) => a + (+p.minutes || 0), 0); },
     summary(it) {
         const parts = [it.order_no ? 'PRO ' + it.order_no : 'PRO belum diisi'];
@@ -1115,6 +1186,14 @@ Alpine.data('productionForm', (cfg) => ({
         return parts.join(' · ');
     },
     save() {
+        // cek jatah menit dulu di perangkat (isian tidak direset); server tetap memeriksa ulang
+        const over = this.f.items.findIndex(it => this.overMinutes(it) > 0);
+        if (over >= 0) {
+            this.f.items[over].open = true;
+            this.message = `PRO #${over + 1}: menit Set Up + Bongkar + Downtime melebihi selisih waktu kerja − cutting time. Kecilkan salah satunya.`;
+            this.$nextTick(() => document.getElementById('item-' + over)?.scrollIntoView({ behavior: 'smooth', block: 'start' }));
+            return;
+        }
         this.submit({
             form_date: this.f.form_date, shift: Number(this.f.shift), area_id: this.clean(this.f.area_id),
             substitute_for_id: this.clean(this.f.substitute_for_id),
@@ -1123,7 +1202,8 @@ Alpine.data('productionForm', (cfg) => ({
                 planned_start: this.clean(it.planned_start), planned_qty: this.clean(it.planned_qty),
                 working_minutes: this.clean(it.working_minutes), cutting_minutes: this.clean(it.cutting_minutes),
                 std_output: this.clean(it.std_output), act_output: this.clean(it.act_output), ok_qty: this.clean(it.ok_qty),
-                second_grade_qty: this.clean(it.second_grade_qty), nc_qty: this.clean(it.nc_qty), note: this.clean(it.note),
+                second_grade_qty: this.clean(it.second_grade_qty), reject_reason: this.hasReject(it) ? this.clean((it.reject_reason || '').trim()) : null,
+                nc_qty: this.clean(it.nc_qty), note: this.clean(it.note),
                 problems: it.problems.map(p => ({ kind: p.kind, option_id: this.optVal(p.option_id),
                     other_text: p.option_id === 'other' ? this.clean(p.other_text) : null, minutes: this.clean(p.minutes) })),
                 attachments: it.photos.filter(x => x.id).map(x => x.id),
@@ -1140,21 +1220,55 @@ Alpine.data('evaluationForm', (cfg) => ({
         this.f = this.withDraft({
             form_date: p?.form_date || cfg.defaults?.form_date || guessFormDate(cfg.today),
             shift: p?.shift || guessShift(),
-            area_id: p?.area_id || cfg.defaults?.area_id || '',
+            area_id: p?.area_id || cfg.defaults?.area_id || this.defaultArea(),
             substitute_for_id: p?.substitute_for_id || '',
             checks: (p?.checks || []).map(c => ({ ...this.newCheck(), ...c })),
         });
-        this.applyAreaLock();
-        this.f.checks = this.f.checks.map(c => ({ ...this.newCheck(), ...c }));
+        this.f.checks = this.f.checks.map(c => this.upgradeCheck({ ...this.newCheck(), ...c }));
         if (!this.f.checks.length) this.addCheck();
         this.watchDraft();
     },
+    /* Jam cek tidak diketik: baris lama memakai jam tersimpan, baris baru diisi jam saat disimpan (WIB, di server). */
     newCheck(prev = null) {
-        return { check_time: nowHM(), machine_id: prev?.machine_id || '', customer: prev?.customer || '', dimension: prev?.dimension || '',
-            od_mm: '', d1: '', d2: '', d3: '', d4: '', thickness_mm: '', ib_height_mm: '', length_mm: '',
-            jig_option_id: '', jig_other: '', visual_option_id: '', visual_other: '',
+        return { id: null, check_time: '', machine_id: prev?.machine_id || '', customer: prev?.customer || '', dimension: prev?.dimension || '',
+            od_mm: '', d1: '', d2: '', d3: '', d4: '', thickness_mm: '', ib_height_mm: '', length_mm: '', p1: '', p2: '', p3: '',
+            jig_ids: [], jig_sizes: {}, jig_other_on: false, jig_other: '', visual_option_id: '', visual_other: '',
             compliance_ids: [], compliance_other_on: false, compliance_other: '',
             actual_cutting: '', problem: '', photos: [], pipe_photos: [], pipe_photo_url: '' };
+    },
+    /* Draf lama (jig satu pilihan, angka bertitik) disesuaikan ke bentuk baru */
+    upgradeCheck(c) {
+        if (c.jig_option_id && !c.jig_ids.length) {
+            if (c.jig_option_id === 'other') c.jig_other_on = true; else c.jig_ids = [c.jig_option_id];
+        }
+        delete c.jig_option_id;
+        if (!c.jig_sizes || Array.isArray(c.jig_sizes)) c.jig_sizes = {};
+        ['od_mm', 'd1', 'd2', 'd3', 'd4', 'thickness_mm', 'ib_height_mm', 'length_mm', 'p1', 'p2', 'p3'].forEach(k => {
+            if (typeof c[k] === 'number') c[k] = String(c[k]).replace('.', ',');
+            if (c[k] === null || c[k] === undefined) c[k] = '';
+        });
+        return c;
+    },
+    timeLabel(c) { return c.id && c.check_time ? c.check_time : 'Otomatis'; },
+    /*
+     * Angka ukur: hanya angka & satu koma (titik dianggap koma), maksimal 2 angka di belakang koma.
+     * Tinggi IB boleh diawali minus.
+     */
+    cleanDecimal(v, allowMinus = false) {
+        let s = String(v ?? '').replace(/\./g, ',').replace(allowMinus ? /[^\d,-]/g : /[^\d,]/g, '');
+        const neg = allowMinus && s.startsWith('-');
+        s = s.replace(/-/g, '');
+        const [int, ...rest] = s.split(',');
+        s = rest.length ? int + ',' + rest.join('').slice(0, 2) : int;
+        return (neg ? '-' : '') + s;
+    },
+    /* Jig: boleh centang lebih dari satu; JIG In / JIG Out perlu ukuran jig */
+    hasJig(c, id) { return c.jig_ids.map(String).includes(String(id)); },
+    jigNeedsSize(id) { return (this.cfg.jigSizeIds || []).map(String).includes(String(id)); },
+    toggleJig(c, id, on) {
+        const rest = c.jig_ids.filter(x => String(x) !== String(id));
+        c.jig_ids = on ? [...rest, id] : rest;
+        if (on && this.jigNeedsSize(id) && c.jig_sizes[id] === undefined) c.jig_sizes[id] = '';
     },
     /* "Pengecekan visual pipa" dicentang → muncul unggah foto / link gambar (wajib salah satu). */
     hasPipe(c) { return !!this.cfg.visualPipeId && c.compliance_ids.map(String).includes(String(this.cfg.visualPipeId)); },
@@ -1171,10 +1285,11 @@ Alpine.data('evaluationForm', (cfg) => ({
         c.compliance_ids = on ? [...rest, id] : rest;
     },
     removeCheck(i) { if (confirm('Hapus baris pengecekan #' + (i + 1) + '?')) this.f.checks.splice(i, 1); },
-    machinesFor() { return this.cfg.machines.filter(m => !this.f.area_id || !m.area_id || String(m.area_id) === String(this.f.area_id)); },
+    /* Semua mesin, tidak dibatasi area */
+    machinesFor() { return this.cfg.machines; },
     optLabel(group, id) { return this.opts(group).find(o => String(o.id) === String(id))?.label || (id === 'other' ? 'Lainnya' : ''); },
     summary(c) {
-        const parts = [c.check_time, this.machineCode(c.machine_id) || 'Mesin belum dipilih'];
+        const parts = [c.id ? c.check_time : '', this.machineCode(c.machine_id) || 'Mesin belum dipilih'];
         const v = this.optLabel('visual', c.visual_option_id);
         if (v) parts.push('Visual ' + v);
         if (c.photos.length) parts.push(`${c.photos.length} foto`);
@@ -1182,16 +1297,19 @@ Alpine.data('evaluationForm', (cfg) => ({
     },
     save() {
         const n = (v) => this.clean(v);
+        const dec = (v) => { const s = String(v ?? '').trim().replace(',', '.'); return s === '' || s === '-' ? null : s; };
         this.submit({
             form_date: this.f.form_date, shift: Number(this.f.shift), area_id: n(this.f.area_id),
             substitute_for_id: n(this.f.substitute_for_id),
             checks: this.f.checks.map(c => ({
-                check_time: n(c.check_time), machine_id: n(c.machine_id), customer: n(c.customer), dimension: n(c.dimension),
+                id: c.id || null, machine_id: n(c.machine_id), customer: n(c.customer), dimension: n(c.dimension),
                 // planning lama (sekarang di Form Rekapan) hanya dikirim ulang bila ada, supaya tidak hilang saat diedit
                 planned_start: n(c.planned_start), planned_qty: n(c.planned_qty),
-                od_mm: n(c.od_mm), d1: n(c.d1), d2: n(c.d2), d3: n(c.d3), d4: n(c.d4), thickness_mm: n(c.thickness_mm),
-                ib_height_mm: n(c.ib_height_mm), length_mm: n(c.length_mm),
-                jig_option_id: this.optVal(c.jig_option_id), jig_other: c.jig_option_id === 'other' ? n(c.jig_other) : null,
+                od_mm: dec(c.od_mm), d1: dec(c.d1), d2: dec(c.d2), d3: dec(c.d3), d4: dec(c.d4), thickness_mm: dec(c.thickness_mm),
+                ib_height_mm: dec(c.ib_height_mm), length_mm: dec(c.length_mm), p1: dec(c.p1), p2: dec(c.p2), p3: dec(c.p3),
+                jig_option_ids: c.jig_ids.map(Number),
+                jig_sizes: Object.fromEntries(c.jig_ids.filter(id => this.jigNeedsSize(id)).map(id => [id, (c.jig_sizes[id] || '').trim()])),
+                jig_other: c.jig_other_on ? n((c.jig_other || '').trim()) : null,
                 visual_option_id: this.optVal(c.visual_option_id), visual_other: c.visual_option_id === 'other' ? n(c.visual_other) : null,
                 compliance_option_ids: c.compliance_ids.map(Number), compliance_other: c.compliance_other_on ? n(c.compliance_other) : null,
                 actual_cutting: n(c.actual_cutting), problem: n(c.problem),
